@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --color-canvas-bg: #171717;
+  --color-canvas-bg: #070707;
 }
 
 :root {
@@ -82,11 +82,11 @@ body {
 
 /* Base handle styles */
 .react-flow__handle {
-  width: 14px;
-  height: 14px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  border: 2px solid white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  border: 2px solid #f5f5f5;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.75);
   z-index: 5;
 }
 
@@ -103,11 +103,11 @@ body {
 }
 
 .react-flow__handle-left {
-  left: -7px;
+  left: -4px;
 }
 
 .react-flow__handle-right {
-  right: -7px;
+  right: -4px;
 }
 
 /* Image handles - soft green */
@@ -136,8 +136,8 @@ body {
 }
 
 .react-flow__edge-path {
-  stroke: #94a3b8;
-  stroke-width: 3;
+  stroke: #7c3aed;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }

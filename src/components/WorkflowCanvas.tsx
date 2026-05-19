@@ -85,7 +85,27 @@ import { useAnnotationStore } from "@/store/annotationStore";
 import { TutorialOverlay } from "./onboarding/TutorialOverlay";
 import { useFTUXStore } from "@/store/ftuxStore";
 import { fetchModelRetargetEnvStatus, scanWorkflowForModelRetargets } from "@/lib/modelRetargeting";
-import { getBlueprintHandles } from "@/lib/nodeRegistry";
+import { getBlueprint, getBlueprintHandles } from "@/lib/nodeRegistry";
+
+const INTERNAL_UTILITY_HEADER_TYPES = new Set<NodeType>([
+  "textSplitter",
+  "maskPainter",
+  "loadLora",
+  "blur",
+  "reformat",
+  "crop",
+  "compositor",
+  "colorCorrection",
+  "forEachStart",
+  "forEachEnd",
+  "actionDirector",
+  "urlSpawner",
+  "mediaDownload",
+  "videoMaskOverlay",
+  "extractFrameCustom",
+  "frameComposer",
+  "audioEnvironment",
+]);
 
 const nodeTypes: NodeTypes = {
   imageInput: ImageInputNode,
@@ -152,6 +172,7 @@ const getHandleType = (handleId: string | null | undefined): "image" | "text" | 
   if (handleId === "3d") return "3d";
   if (handleId === "mask") return "image";
   if (handleId === "lora") return "text";
+  if (["openPose", "depth", "canny", "normal", "shaded", "alpha"].includes(handleId)) return "image";
   // Standard handles
   if (handleId === "video") return "video";
   if (handleId === "audio" || handleId.startsWith("audio")) return "audio";
@@ -527,7 +548,8 @@ export function WorkflowCanvas() {
       if (model?.name) return model.name;
     }
 
-    return NODE_TITLES[node.type || ""] || "Node";
+    const blueprint = node.type ? getBlueprint(node.type as NodeType) : null;
+    return blueprint?.label || NODE_TITLES[node.type || ""] || "Node";
   }, []);
 
 
@@ -2128,6 +2150,7 @@ export function WorkflowCanvas() {
         edgeTypes={edgeTypes}
         isValidConnection={isValidConnection}
         fitView
+        fitViewOptions={{ maxZoom: 1 }}
         deleteKeyCode={["Backspace", "Delete"]}
         multiSelectionKeyCode="Shift"
         selectionOnDrag={
@@ -2174,7 +2197,7 @@ export function WorkflowCanvas() {
         nodesDraggable={!isModalOpen}
         nodesConnectable={!isModalOpen}
         elementsSelectable={!isModalOpen}
-        className="bg-neutral-900"
+        className="bg-[#070707]"
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
           type: "editable",
@@ -2185,8 +2208,8 @@ export function WorkflowCanvas() {
         <GroupBackgroundsPortal />
         <GroupControlsOverlay />
         <Background
-          color="#404040"
-          gap={20}
+          color="#252525"
+          gap={24}
           size={1}
           className={tutorialActive && lockedFeatures ? "opacity-30 pointer-events-none" : ""}
         />
@@ -2255,6 +2278,7 @@ export function WorkflowCanvas() {
           {allNodes.map((node) => {
             // Groups don't get floating headers
             if (node.type === "group" as any) return null;
+            if (node.type && INTERNAL_UTILITY_HEADER_TYPES.has(node.type as NodeType)) return null;
 
             const defaultWidth = defaultNodeDimensions[node.type as NodeType]?.width ?? 250;
             const headerWidth = node.measured?.width || (node.style?.width as number) || defaultWidth;

@@ -379,6 +379,12 @@ export async function executeAudioEnvironment(ctx: NodeExecutionContext): Promis
       treble: data.treble,
       gain: data.gain,
       bypass: data.bypass,
+      preset: data.preset,
+      tone: data.tone,
+      outputFormat: data.outputFormat,
+      distance: data.distance,
+      reverbWet: data.reverbWet,
+      pan: data.pan,
     });
     setComplete(ctx, { sourceAudio, outputAudio, outputKind: "audio" } as Partial<WorkflowNodeData>);
   } catch (error) {

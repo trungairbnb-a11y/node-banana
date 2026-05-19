@@ -33,6 +33,13 @@ export interface NodeBlueprint {
   createData: () => WorkflowNodeData;
   getOutput?: (node: WorkflowNode, sourceHandle?: string | null) => BlueprintOutput;
   canExecute?: boolean;
+  processorId?: string;
+  xnode?: {
+    title?: string;
+    preview?: "image" | "video" | "audio" | "text" | "canvas" | "none";
+    handleLabels?: Record<string, string>;
+    menuGroup?: "Utility" | "Generate" | "Network" | "Input" | "Output";
+  };
 }
 
 const blueprints = new Map<NodeType, NodeBlueprint>();
@@ -124,14 +131,14 @@ const baseBlueprints: Array<Omit<NodeBlueprint, "dimensions" | "createData"> & {
   { type: "llmGenerate", label: "LLM Generate", category: "Generate", handles: { inputs: ["text", "image"], outputs: ["text"] } },
   { type: "output", label: "Output", category: "Utility", handles: { inputs: ["image", "video", "audio"], outputs: [] } },
   { type: "splitGrid", label: "Split Grid", category: "Utility", handles: { inputs: ["image"], outputs: ["reference"] } },
-  { type: "annotation", label: "Annotate", category: "Utility", handles: { inputs: ["image"], outputs: ["image"] } },
+  { type: "annotation", label: "Sticky Note", category: "Utility", handles: { inputs: ["image"], outputs: ["image"] } },
   { type: "imageCompare", label: "Image Compare", category: "Utility", handles: { inputs: ["image"], outputs: [] } },
   { type: "videoStitch", label: "Video Stitch", category: "Utility", handles: { inputs: ["video", "audio"], outputs: ["video"] } },
   { type: "videoTrim", label: "Video Trim", category: "Utility", handles: { inputs: ["video"], outputs: ["video"] } },
   { type: "easeCurve", label: "Ease Curve", category: "Utility", handles: { inputs: ["video", "easeCurve"], outputs: ["video", "easeCurve"] } },
   { type: "videoFrameGrab", label: "Frame Grab", category: "Utility", handles: { inputs: ["video"], outputs: ["image"] } },
   { type: "router", label: "Router", category: "Route", handles: { inputs: ["image", "text", "video", "audio", "3d", "easeCurve", "generic-input"], outputs: ["image", "text", "video", "audio", "3d", "easeCurve", "generic-output"] } },
-  { type: "switch", label: "Switch", category: "Route", handles: { inputs: ["generic-input"], outputs: [] } },
+  { type: "switch", label: "Switch", category: "Utility", handles: { inputs: ["generic-input"], outputs: [] } },
   { type: "conditionalSwitch", label: "Conditional Switch", category: "Route", handles: { inputs: ["text"], outputs: [] } },
   { type: "outputGallery", label: "Output Gallery", category: "Output", handles: { inputs: ["image", "video"], outputs: [] } },
 ];
@@ -155,7 +162,7 @@ const utilityBlueprints: Array<Omit<NodeBlueprint, "dimensions" | "createData">>
   { type: "colorCorrection", label: "Color Correction", category: "Utility", handles: { inputs: ["image", "mask"], outputs: ["image"] }, getOutput: fieldOutput("outputImage", "image"), canExecute: true },
   { type: "forEachStart", label: "For Each Start", category: "Utility", handles: { inputs: ["text", "image", "video", "audio"], outputs: ["text", "image", "video", "audio"] }, getOutput: indexedTextOutput, canExecute: true },
   { type: "forEachEnd", label: "For Each End", category: "Utility", handles: { inputs: ["text", "image", "video", "audio"], outputs: ["text"] }, getOutput: fieldOutput("outputJson", "text"), canExecute: true },
-  { type: "actionDirector", label: "Action Director", category: "Utility", handles: { inputs: ["image", "video"], outputs: ["image", "video"] }, getOutput: (node) => fieldOutput(typeof data(node).outputImage === "string" ? "outputImage" : "outputVideo", typeof data(node).outputImage === "string" ? "image" : "video")(node), canExecute: true },
+  { type: "actionDirector", label: "Action Director", category: "Utility", handles: { inputs: ["image", "video"], outputs: ["openPose", "depth", "canny", "normal", "shaded", "alpha"] }, getOutput: (node) => fieldOutput(typeof data(node).outputImage === "string" ? "outputImage" : "outputVideo", typeof data(node).outputImage === "string" ? "image" : "video")(node), canExecute: true },
   { type: "urlSpawner", label: "URL Spawner", category: "Utility", handles: { inputs: [], outputs: [] } },
   { type: "mediaDownload", label: "Media Download", category: "Utility", handles: { inputs: ["text"], outputs: ["video", "audio"] }, getOutput: (node) => {
     const d = data(node);
@@ -173,5 +180,19 @@ utilityBlueprints.forEach((blueprint) => {
     ...blueprint,
     dimensions: defaultNodeDimensions[blueprint.type],
     createData: passthroughDefault(blueprint.type),
+    processorId: blueprint.canExecute ? blueprint.type : undefined,
+    xnode: {
+      title: blueprint.label,
+      menuGroup: "Utility",
+      preview: blueprint.type === "textSplitter" || blueprint.type === "urlSpawner" || blueprint.type === "loadLora"
+        ? "text"
+        : blueprint.type === "audioEnvironment"
+          ? "audio"
+          : blueprint.type === "videoMaskOverlay" || blueprint.type === "frameComposer"
+            ? "video"
+            : blueprint.type === "maskPainter"
+              ? "canvas"
+              : "image",
+    },
   });
 });

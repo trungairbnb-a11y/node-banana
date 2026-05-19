@@ -10,7 +10,7 @@ const MAX_INLINE_BYTES = 50 * 1024 * 1024;
 interface MediaDownloadRequest {
   url?: string;
   format?: "video" | "audio";
-  quality?: "best" | "medium" | "low";
+  quality?: "best" | "1080p" | "720p" | "480p" | "medium" | "low";
 }
 
 function isHttpUrl(value: string): boolean {
@@ -22,21 +22,22 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-function pickYtDlpFormat(format: "video" | "audio", quality: "best" | "medium" | "low"): string {
+function pickYtDlpFormat(format: "video" | "audio", quality: NonNullable<MediaDownloadRequest["quality"]>): string {
   if (format === "audio") {
-    if (quality === "low") return "bestaudio[abr<=96]/bestaudio/best";
-    if (quality === "medium") return "bestaudio[abr<=160]/bestaudio/best";
+    if (quality === "low" || quality === "480p") return "bestaudio[abr<=96]/bestaudio/best";
+    if (quality === "medium" || quality === "720p") return "bestaudio[abr<=160]/bestaudio/best";
     return "bestaudio/best";
   }
-  if (quality === "low") return "bestvideo[height<=480]+bestaudio/best[height<=480]/best";
-  if (quality === "medium") return "bestvideo[height<=720]+bestaudio/best[height<=720]/best";
+  if (quality === "low" || quality === "480p") return "bestvideo[height<=480]+bestaudio/best[height<=480]/best";
+  if (quality === "medium" || quality === "720p") return "bestvideo[height<=720]+bestaudio/best[height<=720]/best";
+  if (quality === "1080p") return "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best";
   return "bestvideo+bestaudio/best";
 }
 
 async function resolveWithYtDlp(
   url: string,
   format: "video" | "audio",
-  quality: "best" | "medium" | "low"
+  quality: NonNullable<MediaDownloadRequest["quality"]>
 ): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync(
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as MediaDownloadRequest;
     const url = (body.url || "").trim();
     const format = body.format === "audio" ? "audio" : "video";
-    const quality = body.quality === "medium" || body.quality === "low" ? body.quality : "best";
+    const quality = body.quality ?? "best";
 
     if (!isHttpUrl(url)) {
       return NextResponse.json({ error: "A valid http(s) URL is required" }, { status: 400 });

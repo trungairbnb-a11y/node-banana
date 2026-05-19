@@ -19,6 +19,13 @@ export interface ColorCorrectionOptions {
   contrast: number;
   saturation: number;
   grayscale: number;
+  gain?: number;
+  gamma?: number;
+  blackPoint?: number;
+  whitePoint?: number;
+  redGain?: number;
+  greenGain?: number;
+  blueGain?: number;
 }
 
 export interface CompositorOptions {
@@ -58,6 +65,10 @@ function get2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Could not create 2D canvas context");
   return ctx;
+}
+
+function clampByte(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)));
 }
 
 export async function blurImage(source: string, radius: number): Promise<string> {
@@ -127,6 +138,32 @@ export async function colorCorrectImage(
     `grayscale(${Math.max(0, Math.min(100, options.grayscale))}%)`,
   ].join(" ");
   ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const needsLevels =
+    options.gain !== undefined ||
+    options.gamma !== undefined ||
+    options.blackPoint !== undefined ||
+    options.whitePoint !== undefined ||
+    options.redGain !== undefined ||
+    options.greenGain !== undefined ||
+    options.blueGain !== undefined;
+  if (needsLevels) {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const pixels = imageData.data;
+    const gain = options.gain ?? 1;
+    const gamma = Math.max(0.01, options.gamma ?? 1);
+    const black = Math.max(0, Math.min(254, options.blackPoint ?? 0));
+    const white = Math.max(black + 1, Math.min(255, options.whitePoint ?? 255));
+    const scale = 255 / (white - black);
+    const gains = [options.redGain ?? 1, options.greenGain ?? 1, options.blueGain ?? 1];
+    for (let i = 0; i < pixels.length; i += 4) {
+      for (let channel = 0; channel < 3; channel += 1) {
+        const leveled = Math.max(0, Math.min(255, (pixels[i + channel] - black) * scale));
+        const gammaAdjusted = 255 * Math.pow(leveled / 255, 1 / gamma);
+        pixels[i + channel] = clampByte(gammaAdjusted * gain * gains[channel]);
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
   return canvasToPng(canvas);
 }
 
@@ -154,31 +191,57 @@ export async function actionMapImage(source: string, mode: string): Promise<stri
   ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
+  const width = canvas.width;
+  const height = canvas.height;
+  const gray = new Uint8ClampedArray(width * height);
 
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
-    const gray = Math.round((r + g + b) / 3);
-    if (mode === "depth") {
-      data[i] = gray;
-      data[i + 1] = gray;
-      data[i + 2] = gray;
-    } else if (mode === "normal") {
-      data[i] = Math.min(255, gray + 40);
-      data[i + 1] = Math.max(0, 255 - gray);
-      data[i + 2] = Math.min(255, 120 + gray / 2);
-    } else if (mode === "alpha") {
-      data[i] = 255;
-      data[i + 1] = 255;
-      data[i + 2] = 255;
-      data[i + 3] = gray;
-    } else {
-      const edge = gray > 125 ? 255 : 0;
-      data[i] = mode === "pose" ? edge : 255 - edge;
-      data[i + 1] = mode === "pose" ? 120 : 255 - edge;
-      data[i + 2] = mode === "shaded" ? gray : 255 - edge;
-    }
+    gray[i / 4] = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+  }
+
+  const sample = (x: number, y: number) => {
+    const cx = Math.max(0, Math.min(width - 1, x));
+    const cy = Math.max(0, Math.min(height - 1, y));
+    return gray[cy * width + cx];
+  };
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const idx = y * width + x;
+      const out = idx * 4;
+      const gx =
+        -sample(x - 1, y - 1) - 2 * sample(x - 1, y) - sample(x - 1, y + 1) +
+        sample(x + 1, y - 1) + 2 * sample(x + 1, y) + sample(x + 1, y + 1);
+      const gy =
+        -sample(x - 1, y - 1) - 2 * sample(x, y - 1) - sample(x + 1, y - 1) +
+        sample(x - 1, y + 1) + 2 * sample(x, y + 1) + sample(x + 1, y + 1);
+      const magnitude = Math.min(255, Math.hypot(gx, gy));
+      const edge = magnitude > 42 ? 255 : 0;
+      const shade = clampByte(128 + (gx - gy) * 0.25);
+      const luminance = gray[idx];
+
+      if (mode === "depth") {
+        data[out] = data[out + 1] = data[out + 2] = clampByte(255 - luminance * 0.65 + (y / Math.max(1, height)) * 90);
+      } else if (mode === "normal") {
+        data[out] = clampByte(128 + gx * 0.35);
+        data[out + 1] = clampByte(128 + gy * 0.35);
+        data[out + 2] = 255;
+      } else if (mode === "shaded") {
+        data[out] = data[out + 1] = data[out + 2] = shade;
+      } else if (mode === "alpha") {
+        data[out] = data[out + 1] = data[out + 2] = 255;
+        data[out + 3] = clampByte(luminance);
+      } else if (mode === "pose") {
+        data[out] = edge;
+        data[out + 1] = edge ? 210 : 0;
+        data[out + 2] = edge ? 80 : 0;
+      } else {
+        data[out] = data[out + 1] = data[out + 2] = edge;
+      }
+  }
   }
 
   ctx.putImageData(imageData, 0, 0);
@@ -269,7 +332,19 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 export async function equalizeAudio(
   source: string,
-  options: { bass: number; mid: number; treble: number; gain: number; bypass: boolean }
+  options: {
+    bass: number;
+    mid: number;
+    treble: number;
+    gain: number;
+    bypass: boolean;
+    preset?: string;
+    tone?: string;
+    distance?: number;
+    reverbWet?: number;
+    pan?: number;
+    outputFormat?: string;
+  }
 ): Promise<string> {
   if (options.bypass) return source;
   const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
@@ -284,10 +359,15 @@ export async function equalizeAudio(
   const input = offline.createBufferSource();
   input.buffer = decoded;
 
+  const preset = options.preset ?? "custom";
+  const tone = options.tone ?? "neutral";
+  const presetGain = preset === "phone" ? 0.7 : preset === "farRoom" ? 0.85 : 1;
+  const toneTilt = tone === "warm" ? -2 : tone === "cold" ? 2 : tone === "muffled" ? -6 : 0;
+
   const bass = offline.createBiquadFilter();
   bass.type = "lowshelf";
   bass.frequency.value = 180;
-  bass.gain.value = options.bass;
+  bass.gain.value = options.bass + (tone === "warm" ? 2 : 0);
 
   const mid = offline.createBiquadFilter();
   mid.type = "peaking";
@@ -298,12 +378,30 @@ export async function equalizeAudio(
   const treble = offline.createBiquadFilter();
   treble.type = "highshelf";
   treble.frequency.value = 4200;
-  treble.gain.value = options.treble;
+  treble.gain.value = options.treble + toneTilt;
 
   const gain = offline.createGain();
-  gain.gain.value = Math.max(0, options.gain);
+  gain.gain.value = Math.max(0, options.gain * presetGain * Math.max(0.1, 1 - (options.distance ?? 0) * 0.45));
 
-  input.connect(bass).connect(mid).connect(treble).connect(gain).connect(offline.destination);
+  const pan = offline.createStereoPanner?.();
+  const wet = offline.createGain();
+  const dry = offline.createGain();
+  wet.gain.value = Math.max(0, Math.min(1, options.reverbWet ?? 0));
+  dry.gain.value = 1 - wet.gain.value * 0.35;
+
+  if (pan) pan.pan.value = Math.max(-1, Math.min(1, options.pan ?? 0));
+
+  const delay = offline.createDelay();
+  delay.delayTime.value = preset === "hall" ? 0.16 : preset === "smallRoom" ? 0.06 : preset === "anotherRoom" ? 0.1 : 0.03;
+  const feedback = offline.createGain();
+  feedback.gain.value = preset === "hall" ? 0.35 : 0.16;
+
+  const output = pan ?? offline.destination;
+  input.connect(bass).connect(mid).connect(treble).connect(gain);
+  gain.connect(dry).connect(output);
+  gain.connect(delay).connect(wet).connect(output);
+  delay.connect(feedback).connect(delay);
+  if (pan) pan.connect(offline.destination);
   input.start(0);
   const rendered = await offline.startRendering();
   return blobToDataUrl(audioBufferToWav(rendered));

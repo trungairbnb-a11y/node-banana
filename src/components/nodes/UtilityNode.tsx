@@ -5,17 +5,11 @@ import type { PointerEvent, ReactNode } from "react";
 import { Handle, Node, NodeProps, Position } from "@xyflow/react";
 import { BaseNode } from "./BaseNode";
 import { HandleLabel } from "./HandleLabel";
-import { useShowHandleLabels } from "@/hooks/useShowHandleLabels";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useAdaptiveImageSrc } from "@/hooks/useAdaptiveImageSrc";
 import { useVideoBlobUrl } from "@/hooks/useVideoBlobUrl";
 import { getBlueprint, getBlueprintHandles } from "@/lib/nodeRegistry";
-import type {
-  HandleType,
-  NodeType,
-  UtilityNodeData,
-  WorkflowNodeData,
-} from "@/types";
+import type { HandleType, NodeType, UtilityNodeData, WorkflowNodeData } from "@/types";
 
 type UtilityFlowNode = Node<UtilityNodeData, NodeType>;
 
@@ -23,9 +17,32 @@ const IMAGE_TYPES = new Set(["maskPainter", "blur", "reformat", "crop", "composi
 const VIDEO_TYPES = new Set(["videoMaskOverlay", "extractFrameCustom", "frameComposer", "actionDirector"]);
 const AUDIO_TYPES = new Set(["audioEnvironment"]);
 const TEXT_TYPES = new Set(["textSplitter", "forEachStart", "mediaDownload"]);
+const ACTION_OUTPUTS = new Set(["openPose", "depth", "canny", "normal", "shaded", "alpha"]);
 
-function handleKind(handleId: string): HandleType | "reference" | "mask" | "lora" | null {
-  if (handleId === "mask") return "image";
+const REFORMAT_PRESETS = [
+  { label: "512 x 512 - Square SM", width: 512, height: 512 },
+  { label: "1024 x 1024 - Square MD", width: 1024, height: 1024 },
+  { label: "1080 x 1080 - Square LG", width: 1080, height: 1080 },
+  { label: "1280 x 720 - 720p HD", width: 1280, height: 720 },
+  { label: "1920 x 1080 - 1080p Full HD", width: 1920, height: 1080 },
+  { label: "720 x 1280 - Portrait HD", width: 720, height: 1280 },
+  { label: "1080 x 1920 - Portrait Full HD", width: 1080, height: 1920 },
+  { label: "1080 x 1350 - Instagram 4:5", width: 1080, height: 1350 },
+];
+
+const ACTION_PRESETS = [
+  { label: "512 x 512 (1:1)", width: 512, height: 512 },
+  { label: "512 x 768 (2:3)", width: 512, height: 768 },
+  { label: "768 x 512 (3:2)", width: 768, height: 512 },
+  { label: "768 x 1024 (3:4)", width: 768, height: 1024 },
+  { label: "1024 x 768 (4:3)", width: 1024, height: 768 },
+  { label: "576 x 1024 (9:16)", width: 576, height: 1024 },
+  { label: "1024 x 576 (16:9)", width: 1024, height: 576 },
+  { label: "1280 x 720 (HD)", width: 1280, height: 720 },
+];
+
+function handleKind(handleId: string): HandleType | "reference" | null {
+  if (handleId === "mask" || ACTION_OUTPUTS.has(handleId)) return "image";
   if (handleId === "lora") return "text";
   if (handleId === "reference") return "reference";
   if (handleId.includes("image") || handleId.includes("frame")) return "image";
@@ -45,22 +62,25 @@ function handleColor(handleId: string): string {
 }
 
 function handleLabel(handleId: string): string {
-  if (handleId === "image-1") return "Image B";
-  if (handleId === "video-1") return "Mask";
-  if (handleId === "mask") return "Mask";
-  if (handleId === "lora") return "LoRA";
+  const labels: Record<string, string> = {
+    image: "Image",
+    "image-1": "Image B",
+    video: "Video",
+    "video-1": "Mask",
+    audio: "Audio",
+    text: "Text",
+    mask: "Mask",
+    lora: "LoRA",
+    openPose: "OpenPose",
+    depth: "Depth",
+    canny: "Canny",
+    normal: "Normal",
+    shaded: "Shaded",
+    alpha: "Alpha",
+  };
+  if (labels[handleId]) return labels[handleId];
   if (handleId.startsWith("text-")) return handleId.replace("text-", "Text ");
-  return handleId
-    .replace(/-/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function mergeUpdate(
-  updateNodeData: (nodeId: string, data: Partial<WorkflowNodeData>) => void,
-  id: string,
-  data: Partial<WorkflowNodeData>
-): void {
-  updateNodeData(id, data);
+  return handleId.replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function filenameFromUrl(url: string): string {
@@ -82,14 +102,52 @@ function classifyUrl(url: string): "imageInput" | "videoInput" | "audioInput" | 
 }
 
 function parseUrls(value: string): string[] {
-  return value
-    .split(/\s+/)
-    .map((item) => item.trim())
-    .filter((item) => /^https?:\/\//i.test(item));
+  return value.split(/\s+/).map((item) => item.trim()).filter((item) => /^https?:\/\//i.test(item));
 }
 
 function FieldLabel({ children }: { children: ReactNode }) {
-  return <label className="text-[10px] uppercase tracking-wide text-neutral-500">{children}</label>;
+  return <label className="text-[9px] uppercase tracking-wide text-neutral-500">{children}</label>;
+}
+
+function TextInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+      className="nodrag nopan w-full rounded-sm border border-neutral-700 bg-[#1a1a1a] px-2 py-1.5 text-[11px] text-neutral-100 placeholder:text-neutral-600 outline-none focus:border-blue-500"
+    />
+  );
+}
+
+function TextArea({
+  value,
+  onChange,
+  placeholder,
+  rows = 4,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  rows?: number;
+}) {
+  return (
+    <textarea
+      value={value}
+      rows={rows}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+      className="nodrag nopan w-full resize-none rounded-sm border border-neutral-800 bg-[#1a1a1a] p-2 text-[11px] text-neutral-100 placeholder:text-neutral-600 outline-none focus:border-blue-500"
+    />
+  );
 }
 
 function NumberInput({
@@ -113,58 +171,144 @@ function NumberInput({
       max={max}
       step={step}
       onChange={(event) => onChange(Number(event.target.value))}
-      className="nodrag nopan w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-100"
+      className="nodrag nopan w-full rounded-sm border border-neutral-800 bg-[#171717] px-2 py-1 text-[10px] text-neutral-100 outline-none focus:border-blue-500"
     />
   );
 }
 
-function RangeInput({
+function Slider({
+  label,
   value,
   min,
   max,
   step = 1,
+  suffix = "",
   onChange,
 }: {
+  label: string;
   value: number;
   min: number;
   max: number;
   step?: number;
+  suffix?: string;
   onChange: (value: number) => void;
 }) {
   return (
-    <input
-      type="range"
-      value={Number.isFinite(value) ? value : 0}
-      min={min}
-      max={max}
-      step={step}
-      onChange={(event) => onChange(Number(event.target.value))}
-      className="nodrag nopan w-full accent-blue-500"
-    />
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <FieldLabel>{label}</FieldLabel>
+        <span className="min-w-10 rounded-sm bg-[#151515] px-1.5 py-0.5 text-right text-[9px] text-blue-300">
+          {Number.isFinite(value) ? value.toFixed(step < 1 ? 2 : 0) : "0"}{suffix}
+        </span>
+      </div>
+      <input
+        type="range"
+        value={Number.isFinite(value) ? value : 0}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="nodrag nopan w-full accent-blue-500"
+      />
+    </div>
   );
 }
 
 function SelectInput<T extends string>({
   value,
   options,
+  labels,
   onChange,
 }: {
   value: T;
-  options: T[];
+  options: readonly T[];
+  labels?: Record<string, string>;
   onChange: (value: T) => void;
 }) {
   return (
     <select
       value={value}
       onChange={(event) => onChange(event.target.value as T)}
-      className="nodrag nopan w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-100"
+      className="nodrag nopan w-full rounded-sm border border-neutral-800 bg-[#171717] px-2 py-1.5 text-[10px] text-neutral-100 outline-none focus:border-blue-500"
     >
       {options.map((option) => (
         <option key={option} value={option}>
-          {option}
+          {labels?.[option] ?? option}
         </option>
       ))}
     </select>
+  );
+}
+
+function Segmented<T extends string>({
+  value,
+  options,
+  labels,
+  onChange,
+}: {
+  value: T;
+  options: readonly T[];
+  labels?: Record<string, string>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="nodrag nopan grid grid-flow-col auto-cols-fr rounded-sm bg-[#1a1a1a] p-0.5">
+      {options.map((option) => (
+        <button
+          key={option}
+          onClick={() => onChange(option)}
+          className={`rounded-sm px-2 py-1 text-[9px] font-medium transition-colors ${
+            value === option ? "bg-blue-600 text-white" : "text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100"
+          }`}
+        >
+          {labels?.[option] ?? option}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Checkbox({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {
+  return (
+    <label className="nodrag nopan flex items-center gap-2 rounded-sm bg-[#1d1d1d] px-2 py-1 text-[10px] text-neutral-300">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="accent-blue-500" />
+      {label}
+    </label>
+  );
+}
+
+function PreviewWell({
+  children,
+  label = "NO IMAGE",
+  height = "h-28",
+}: {
+  children?: ReactNode;
+  label?: string;
+  height?: string;
+}) {
+  return (
+    <div className={`${height} flex items-center justify-center overflow-hidden rounded-sm border border-neutral-800 bg-[#1b1b1b] text-center text-[10px] uppercase tracking-wide text-neutral-600`}>
+      {children ?? (
+        <div className="flex flex-col items-center gap-1">
+          <svg className="h-5 w-5 text-neutral-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5 8.25 11.25a2.25 2.25 0 0 1 3.18 0L21 20.82M3 5.25h18v15H3v-15Zm13.5 3.75h.01" />
+          </svg>
+          <span>{label}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MiniIconButton({ title, children, onClick }: { title: string; children: ReactNode; onClick?: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="nodrag nopan flex h-5 w-5 items-center justify-center rounded border border-neutral-700 bg-[#222] text-neutral-500 hover:text-neutral-200"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -222,31 +366,50 @@ function MaskPainterSurface({
     } as Partial<WorkflowNodeData>);
   }, [id, updateNodeData]);
 
+  const clearMask = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    commitMask();
+  };
+
   return (
-    <div className="relative h-32 overflow-hidden rounded border border-neutral-700 bg-neutral-950">
-      {adaptiveImage ? (
-        <img src={adaptiveImage} alt="" className="absolute inset-0 h-full w-full object-contain opacity-70" />
-      ) : null}
-      <canvas
-        ref={canvasRef}
-        className="nodrag nopan absolute inset-0 h-full w-full cursor-crosshair mix-blend-screen"
-        onPointerDown={(event) => {
-          drawingRef.current = true;
-          event.currentTarget.setPointerCapture(event.pointerId);
-          drawAt(event);
-        }}
-        onPointerMove={(event) => {
-          if (drawingRef.current) drawAt(event);
-        }}
-        onPointerUp={() => {
-          drawingRef.current = false;
-          commitMask();
-        }}
-        onPointerCancel={() => {
-          drawingRef.current = false;
-          commitMask();
-        }}
-      />
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <Segmented value={mode} options={["paint", "erase"]} labels={{ paint: "Brush", erase: "Eraser" }} onChange={(value) => updateNodeData(id, { mode: value } as Partial<WorkflowNodeData>)} />
+        <button onClick={clearMask} className="nodrag nopan rounded-sm bg-[#1b1b1b] px-2 py-1 text-[9px] text-neutral-300 hover:bg-neutral-700">Clear</button>
+      </div>
+      <Slider label="Brush" value={brushSize} min={2} max={96} suffix="px" onChange={(value) => updateNodeData(id, { brushSize: value } as Partial<WorkflowNodeData>)} />
+      <div className="relative h-36 overflow-hidden rounded-sm border border-neutral-700 bg-[#151515]">
+        {adaptiveImage ? <img src={adaptiveImage} alt="" className="absolute inset-0 h-full w-full object-contain opacity-70" /> : null}
+        <canvas
+          ref={canvasRef}
+          className="nodrag nopan absolute inset-0 h-full w-full cursor-crosshair mix-blend-screen"
+          onPointerDown={(event) => {
+            drawingRef.current = true;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            drawAt(event);
+          }}
+          onPointerMove={(event) => {
+            if (drawingRef.current) drawAt(event);
+          }}
+          onPointerUp={() => {
+            drawingRef.current = false;
+            commitMask();
+          }}
+          onPointerCancel={() => {
+            drawingRef.current = false;
+            commitMask();
+          }}
+        />
+        {!adaptiveImage && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] text-neutral-600">
+            Connect an image to start painting a mask
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -261,7 +424,6 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
   const edges = useWorkflowStore((state) => state.edges);
   const getConnectedInputs = useWorkflowStore((state) => state.getConnectedInputs);
   const isRunning = useWorkflowStore((state) => state.isRunning);
-  const showLabels = useShowHandleLabels(selected);
   const handles = getBlueprintHandles(nodeType);
 
   const connected = useMemo(() => getConnectedInputs(id), [id, getConnectedInputs, nodes, edges]);
@@ -272,44 +434,26 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
   useEffect(() => {
     const next: Partial<WorkflowNodeData> = {};
     if (IMAGE_TYPES.has(nodeType) || nodeType === "frameComposer") {
-      if (connected.images[0] && connected.images[0] !== data.sourceImage) {
-        (next as UtilityNodeData).sourceImage = connected.images[0];
-      }
-      if (connected.images[1] && connected.images[1] !== data.secondaryImage) {
-        (next as UtilityNodeData).secondaryImage = connected.images[1];
-      }
-      if (nodeType === "frameComposer" && connected.images.length > 0) {
-        (next as UtilityNodeData).referenceImages = connected.images;
-      }
+      if (connected.images[0] && connected.images[0] !== data.sourceImage) (next as UtilityNodeData).sourceImage = connected.images[0];
+      if (connected.images[1] && connected.images[1] !== data.secondaryImage) (next as UtilityNodeData).secondaryImage = connected.images[1];
+      if (connected.images[1] && connected.images[1] !== data.maskImage && (nodeType === "blur" || nodeType === "colorCorrection")) (next as UtilityNodeData).maskImage = connected.images[1];
+      if (nodeType === "frameComposer" && connected.images.length > 0) (next as UtilityNodeData).referenceImages = connected.images;
     }
     if (VIDEO_TYPES.has(nodeType)) {
-      if (connected.videos[0] && connected.videos[0] !== data.sourceVideo) {
-        (next as UtilityNodeData).sourceVideo = connected.videos[0];
-      }
-      if (connected.videos[1] && connected.videos[1] !== data.maskVideo) {
-        (next as UtilityNodeData).maskVideo = connected.videos[1];
-      }
+      if (connected.videos[0] && connected.videos[0] !== data.sourceVideo) (next as UtilityNodeData).sourceVideo = connected.videos[0];
+      if (connected.videos[1] && connected.videos[1] !== data.maskVideo) (next as UtilityNodeData).maskVideo = connected.videos[1];
     }
-    if (AUDIO_TYPES.has(nodeType) && connected.audio[0] && connected.audio[0] !== data.sourceAudio) {
-      (next as UtilityNodeData).sourceAudio = connected.audio[0];
-    }
+    if (AUDIO_TYPES.has(nodeType) && connected.audio[0] && connected.audio[0] !== data.sourceAudio) (next as UtilityNodeData).sourceAudio = connected.audio[0];
     if (TEXT_TYPES.has(nodeType) && connected.text && connected.text !== data.inputText) {
       (next as UtilityNodeData).inputText = connected.text;
-      if (nodeType === "mediaDownload") {
-        (next as UtilityNodeData).inputUrl = connected.text;
-      }
+      if (nodeType === "mediaDownload") (next as UtilityNodeData).inputUrl = connected.text;
     }
-    if (Object.keys(next).length > 0) {
-      updateNodeData(id, next);
-    }
-  }, [connected, data.inputText, data.maskVideo, data.secondaryImage, data.sourceAudio, data.sourceImage, data.sourceVideo, id, nodeType, updateNodeData]);
+    if (Object.keys(next).length > 0) updateNodeData(id, next);
+  }, [connected, data.inputText, data.maskImage, data.maskVideo, data.secondaryImage, data.sourceAudio, data.sourceImage, data.sourceVideo, id, nodeType, updateNodeData]);
 
-  const setField = useCallback(
-    (field: string, value: unknown) => {
-      mergeUpdate(updateNodeData, id, { [field]: value } as Partial<WorkflowNodeData>);
-    },
-    [id, updateNodeData]
-  );
+  const setField = useCallback((field: string, value: unknown) => {
+    updateNodeData(id, { [field]: value } as Partial<WorkflowNodeData>);
+  }, [id, updateNodeData]);
 
   const spawnUrls = useCallback(() => {
     const currentNode = nodes.find((node) => node.id === id);
@@ -320,15 +464,10 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
       if (!nodeKind) return;
       const filename = filenameFromUrl(url);
       const position = { x: base.x + 380 + (index % 2) * 330, y: base.y + Math.floor(index / 2) * 240 };
-      if (nodeKind === "imageInput") {
-        addNode("imageInput", position, { image: url, filename, dimensions: null });
-      } else if (nodeKind === "videoInput") {
-        addNode("videoInput", position, { video: url, filename, duration: null, dimensions: null, format: null });
-      } else if (nodeKind === "audioInput") {
-        addNode("audioInput", position, { audioFile: url, filename, duration: null, format: null });
-      } else {
-        addNode("loadLora", position, { path: url, scale: 1 });
-      }
+      if (nodeKind === "imageInput") addNode("imageInput", position, { image: url, filename, dimensions: null });
+      else if (nodeKind === "videoInput") addNode("videoInput", position, { video: url, filename, duration: null, dimensions: null, format: null });
+      else if (nodeKind === "audioInput") addNode("audioInput", position, { audioFile: url, filename, duration: null, format: null });
+      else addNode("loadLora", position, { path: url, scale: 1 });
       created += 1;
     });
     updateNodeData(id, {
@@ -339,19 +478,17 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
   }, [addNode, data.urls, id, nodes, updateNodeData]);
 
   const renderHandles = () => {
-    const outputHandles =
-      nodeType === "textSplitter" && Array.isArray(data.outputItems) && data.outputItems.length > 0
-        ? data.outputItems.slice(0, 10).map((_, index) => `text-${index}`)
-        : handles.outputs;
-    const allInputs = handles.inputs;
+    const outputHandles = nodeType === "textSplitter" && Array.isArray(data.outputItems) && data.outputItems.length > 0
+      ? data.outputItems.slice(0, 10).map((_, index) => `text-${index}`)
+      : handles.outputs;
     return (
       <>
-        {allInputs.map((handleId, index) => {
-          const top = `${((index + 1) / (allInputs.length + 1)) * 100}%`;
+        {handles.inputs.map((handleId, index) => {
+          const top = `${((index + 1) / (handles.inputs.length + 1)) * 100}%`;
           return (
             <div key={`in-${handleId}`}>
               <Handle type="target" position={Position.Left} id={handleId} data-handletype={handleKind(handleId)} style={{ top, zIndex: 10 }} />
-              <HandleLabel label={handleLabel(handleId)} side="target" color={handleColor(handleId)} top={`calc(${top} - 7px)`} visible={showLabels} />
+              <HandleLabel label={handleLabel(handleId)} side="target" color={handleColor(handleId)} top={`calc(${top} - 7px)`} visible />
             </div>
           );
         })}
@@ -360,7 +497,7 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
           return (
             <div key={`out-${handleId}`}>
               <Handle type="source" position={Position.Right} id={handleId} data-handletype={handleKind(handleId)} style={{ top, zIndex: 10 }} />
-              <HandleLabel label={handleLabel(handleId)} side="source" color={handleColor(handleId)} top={`calc(${top} - 7px)`} visible={showLabels} />
+              <HandleLabel label={handleLabel(handleId)} side="source" color={handleColor(handleId)} top={`calc(${top} - 7px)`} visible />
             </div>
           );
         })}
@@ -368,23 +505,19 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
     );
   };
 
-  const renderPreview = () => {
-    if (nodeType === "urlSpawner" || nodeType === "loadLora" || nodeType === "textSplitter" || nodeType === "forEachStart" || nodeType === "forEachEnd") {
-      const text = data.outputText ?? data.outputJson ?? data.outputLora ?? "";
-      return text ? (
-        <pre className="max-h-20 overflow-auto rounded bg-neutral-950 p-2 text-[10px] text-neutral-300">{String(text)}</pre>
-      ) : null;
-    }
+  const renderPreview = (height = "h-28") => {
     if (nodeType === "audioEnvironment" && (data.outputAudio || data.sourceAudio)) {
       return <audio src={(data.outputAudio ?? data.sourceAudio) || undefined} controls className="w-full" />;
     }
     if ((data.outputVideo || data.sourceVideo) && previewVideo) {
-      return <video src={previewVideo} controls muted loop playsInline className="h-28 w-full rounded bg-black object-contain" />;
+      return <PreviewWell height={height} label="READY"><video src={previewVideo} muted loop playsInline className="h-full w-full object-contain" /></PreviewWell>;
     }
     if (adaptivePreviewImage) {
-      return <img src={adaptivePreviewImage} alt="" className="h-28 w-full rounded bg-neutral-950 object-contain" />;
+      return <PreviewWell height={height}><img src={adaptivePreviewImage} alt="" className="h-full w-full object-contain" /></PreviewWell>;
     }
-    return <div className="flex h-20 items-center justify-center rounded bg-neutral-900 text-[11px] text-neutral-500">No preview</div>;
+    if (nodeType === "forEachStart" || nodeType === "forEachEnd") return <PreviewWell height={height} label="WAITING" />;
+    if (nodeType === "videoMaskOverlay" || nodeType === "frameComposer") return <PreviewWell height={height} label="READY" />;
+    return <PreviewWell height={height} />;
   };
 
   const renderControls = () => {
@@ -392,71 +525,126 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
       case "textSplitter":
         return (
           <>
-            <textarea value={data.inputText ?? ""} onChange={(event) => setField("inputText", event.target.value)} className="nodrag nopan h-16 rounded border border-neutral-700 bg-neutral-900 p-2 text-[11px] text-neutral-100" />
-            <div className="grid grid-cols-2 gap-2">
-              <div><FieldLabel>Delimiter</FieldLabel><input value={String(data.delimiter ?? "\\n")} onChange={(event) => setField("delimiter", event.target.value)} className="nodrag nopan w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-100" /></div>
-              <div><FieldLabel>Outputs</FieldLabel><NumberInput value={Number(data.maxOutputs ?? 10)} min={1} max={10} onChange={(value) => setField("maxOutputs", value)} /></div>
-            </div>
+            <div><FieldLabel>Delimiter</FieldLabel><TextInput value={String(data.delimiter ?? "\\n")} onChange={(value) => setField("delimiter", value)} /></div>
+            <TextArea value={data.inputText ?? ""} onChange={(value) => setField("inputText", value)} placeholder="Connect text input and run" rows={4} />
           </>
         );
       case "maskPainter":
-        return (
-          <>
-            <MaskPainterSurface id={id} sourceImage={data.sourceImage} mode={(data.mode as "paint" | "erase") ?? "paint"} brushSize={Number(data.brushSize ?? 28)} updateNodeData={updateNodeData} />
-            <div className="grid grid-cols-2 gap-2">
-              <div><FieldLabel>Mode</FieldLabel><SelectInput value={(data.mode as "paint" | "erase") ?? "paint"} options={["paint", "erase"]} onChange={(value) => setField("mode", value)} /></div>
-              <div><FieldLabel>Brush</FieldLabel><NumberInput value={Number(data.brushSize ?? 28)} min={2} max={96} onChange={(value) => setField("brushSize", value)} /></div>
-            </div>
-          </>
-        );
+        return <MaskPainterSurface id={id} sourceImage={data.sourceImage} mode={(data.mode as "paint" | "erase") ?? "paint"} brushSize={Number(data.brushSize ?? 28)} updateNodeData={updateNodeData} />;
       case "loadLora":
         return (
           <>
-            <div><FieldLabel>URL or path</FieldLabel><input value={String(data.path ?? "")} onChange={(event) => setField("path", event.target.value)} className="nodrag nopan w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-100" /></div>
-            <div><FieldLabel>Scale</FieldLabel><RangeInput value={Number(data.scale ?? 1)} min={0} max={2} step={0.05} onChange={(value) => setField("scale", value)} /></div>
+            <div><FieldLabel>Paste a direct URL to your .safetensors file.</FieldLabel><div className="flex gap-1"><TextInput value={String(data.path ?? "")} onChange={(value) => setField("path", value)} placeholder="https://..." /><button onClick={() => regenerateNode(id)} className="nodrag nopan rounded-sm bg-orange-600 px-2 text-[9px] text-white">Set</button></div></div>
+            <Slider label="Scale" value={Number(data.scale ?? 1)} min={0} max={2} step={0.05} onChange={(value) => setField("scale", value)} />
           </>
         );
       case "blur":
-        return <div><FieldLabel>Radius</FieldLabel><RangeInput value={Number(data.radius ?? 12)} min={0} max={60} onChange={(value) => setField("radius", value)} /></div>;
+        return <><div><FieldLabel>Mask</FieldLabel><span className="text-[10px] text-neutral-500">Mask --</span></div>{renderPreview("h-28")}<Slider label="Blur Radius" value={Number(data.radius ?? 10)} min={0} max={60} suffix="px" onChange={(value) => setField("radius", value)} /></>;
       case "reformat":
         return (
-          <div className="grid grid-cols-2 gap-2">
-            <div><FieldLabel>Width</FieldLabel><NumberInput value={Number(data.width ?? 1024)} min={1} onChange={(value) => setField("width", value)} /></div>
-            <div><FieldLabel>Height</FieldLabel><NumberInput value={Number(data.height ?? 1024)} min={1} onChange={(value) => setField("height", value)} /></div>
-            <div><FieldLabel>Mode</FieldLabel><SelectInput value={(data.mode as "contain" | "cover" | "stretch") ?? "contain"} options={["contain", "cover", "stretch"]} onChange={(value) => setField("mode", value)} /></div>
-            <div><FieldLabel>Background</FieldLabel><input type="color" value={String(data.background ?? "#000000")} onChange={(event) => setField("background", event.target.value)} className="nodrag nopan h-7 w-full rounded border border-neutral-700 bg-neutral-900" /></div>
-          </div>
+          <>
+            {renderPreview("h-32")}
+            <Segmented value={(data.preset as "preset" | "custom") ?? "preset"} options={["preset", "custom"]} labels={{ preset: "Preset", custom: "Custom" }} onChange={(value) => setField("preset", value)} />
+            <SelectInput value={String(`${data.width ?? 512}x${data.height ?? 512}`)} options={REFORMAT_PRESETS.map((p) => `${p.width}x${p.height}`)} labels={Object.fromEntries(REFORMAT_PRESETS.map((p) => [`${p.width}x${p.height}`, p.label]))} onChange={(value) => {
+              const preset = REFORMAT_PRESETS.find((item) => `${item.width}x${item.height}` === value);
+              if (preset) updateNodeData(id, { width: preset.width, height: preset.height } as Partial<WorkflowNodeData>);
+            }} />
+            <Checkbox checked={Boolean(data.keepAspectRatio ?? true)} onChange={(checked) => setField("keepAspectRatio", checked)} label="Keep aspect ratio" />
+            <div className="grid grid-cols-2 gap-2">
+              <div><FieldLabel>Width</FieldLabel><NumberInput value={Number(data.width ?? 512)} min={1} onChange={(value) => setField("width", value)} /></div>
+              <div><FieldLabel>Height</FieldLabel><NumberInput value={Number(data.height ?? 512)} min={1} onChange={(value) => setField("height", value)} /></div>
+            </div>
+          </>
         );
       case "crop":
         return (
-          <div className="grid grid-cols-4 gap-2">
-            {(["x", "y", "width", "height"] as const).map((field) => <div key={field}><FieldLabel>{field}</FieldLabel><NumberInput value={Number(data[field] ?? (field === "width" || field === "height" ? 100 : 0))} min={0} max={100} onChange={(value) => setField(field, value)} /></div>)}
-            <label className="col-span-2 flex items-center gap-2 text-[11px] text-neutral-300"><input type="checkbox" checked={Boolean(data.flipHorizontal)} onChange={(event) => setField("flipHorizontal", event.target.checked)} /> Flip H</label>
-            <label className="col-span-2 flex items-center gap-2 text-[11px] text-neutral-300"><input type="checkbox" checked={Boolean(data.flipVertical)} onChange={(event) => setField("flipVertical", event.target.checked)} /> Flip V</label>
-          </div>
+          <>
+            {renderPreview("h-36")}
+            <div className="flex items-center justify-between"><button onClick={() => updateNodeData(id, { x: 0, y: 0, width: 100, height: 100 } as Partial<WorkflowNodeData>)} className="nodrag nopan rounded-sm bg-neutral-700 px-2 py-1 text-[9px] text-white">Reset</button><div className="flex gap-1"><button onClick={() => setField("flipHorizontal", !data.flipHorizontal)} className="nodrag nopan rounded-sm bg-neutral-700 px-2 py-1 text-[9px] text-white">Flip H</button><button onClick={() => setField("flipVertical", !data.flipVertical)} className="nodrag nopan rounded-sm bg-neutral-700 px-2 py-1 text-[9px] text-white">Flip V</button></div></div>
+            <div className="grid grid-cols-4 gap-2">{(["x", "y", "width", "height"] as const).map((field) => <div key={field}><FieldLabel>{field}</FieldLabel><NumberInput value={Number(data[field] ?? (field === "width" || field === "height" ? 100 : 0))} min={0} max={100} onChange={(value) => setField(field, value)} /></div>)}</div>
+          </>
         );
       case "compositor":
         return (
-          <div className="grid grid-cols-2 gap-2">
-            <div><FieldLabel>Blend</FieldLabel><SelectInput value={(data.blendMode as GlobalCompositeOperation) ?? "source-over"} options={["source-over", "multiply", "screen", "overlay", "darken", "lighten"]} onChange={(value) => setField("blendMode", value)} /></div>
-            <div><FieldLabel>Opacity</FieldLabel><RangeInput value={Number(data.opacity ?? 0.75)} min={0} max={1} step={0.05} onChange={(value) => setField("opacity", value)} /></div>
-          </div>
-        );
-      case "colorCorrection":
-        return (
-          <div className="grid grid-cols-2 gap-2">
-            {(["brightness", "contrast", "saturation", "grayscale"] as const).map((field) => <div key={field}><FieldLabel>{field}</FieldLabel><RangeInput value={Number(data[field] ?? (field === "grayscale" ? 0 : 100))} min={0} max={200} onChange={(value) => setField(field, value)} /></div>)}
-          </div>
-        );
-      case "forEachStart":
-        return (
           <>
-            <textarea value={data.inputText ?? ""} onChange={(event) => setField("inputText", event.target.value)} className="nodrag nopan h-16 rounded border border-neutral-700 bg-neutral-900 p-2 text-[11px] text-neutral-100" />
-            <div><FieldLabel>Current index</FieldLabel><NumberInput value={Number(data.currentIndex ?? 0)} min={0} onChange={(value) => setField("currentIndex", value)} /></div>
+            {renderPreview("h-28")}
+            <div className="grid grid-cols-3 gap-1 text-[9px] text-neutral-500"><span>A --</span><span>B --</span><span>Mask --</span></div>
+            <div><FieldLabel>Blend Mode</FieldLabel><SelectInput value={String(data.blendMode ?? "source-over")} options={["source-over", "multiply", "screen", "overlay", "soft-light", "hard-light", "darken", "lighten", "difference"]} labels={{ "source-over": "Normal", "soft-light": "Soft Light", "hard-light": "Hard Light" }} onChange={(value) => setField("blendMode", value)} /></div>
+            <Slider label="Opacity" value={Number(data.opacity ?? 1)} min={0} max={1} step={0.05} suffix="" onChange={(value) => setField("opacity", value)} />
+            <p className="text-[9px] text-neutral-500">Mask restricts blend to painted white areas; black regions show Image B.</p>
           </>
         );
+      case "colorCorrection": {
+        const tab = (data.activeTab as "color" | "levels") ?? "color";
+        return (
+          <>
+            <Segmented value={tab} options={["color", "levels"]} labels={{ color: "Color Correction", levels: "Levels" }} onChange={(value) => setField("activeTab", value)} />
+            {renderPreview("h-28")}
+            {tab === "color" ? (
+              <>
+                <Slider label="Saturation" value={Number(data.saturation ?? 100)} min={0} max={200} onChange={(value) => setField("saturation", value)} />
+                <Slider label="Gain" value={Number(data.gain ?? 1)} min={0} max={3} step={0.05} onChange={(value) => setField("gain", value)} />
+                <Slider label="Contrast" value={Number(data.contrast ?? 100)} min={0} max={200} onChange={(value) => setField("contrast", value)} />
+                <Slider label="Gamma" value={Number(data.gamma ?? 1)} min={0.1} max={3} step={0.05} onChange={(value) => setField("gamma", value)} />
+              </>
+            ) : (
+              <>
+                <Slider label="Black Point" value={Number(data.blackPoint ?? 0)} min={0} max={254} onChange={(value) => setField("blackPoint", value)} />
+                <Slider label="White Point" value={Number(data.whitePoint ?? 255)} min={1} max={255} onChange={(value) => setField("whitePoint", value)} />
+                <div className="grid grid-cols-3 gap-2">
+                  {(["redGain", "greenGain", "blueGain"] as const).map((field) => <Slider key={field} label={field.replace("Gain", "")} value={Number(data[field] ?? 1)} min={0} max={2} step={0.05} onChange={(value) => setField(field, value)} />)}
+                </div>
+              </>
+            )}
+          </>
+        );
+      }
+      case "videoMaskOverlay":
+        return (
+          <>
+            {renderPreview("h-32")}
+            <div><FieldLabel>Mask Color</FieldLabel><div className="flex gap-1">{["#ff0000", "#ffffff", "#000000", "#00ff00", "#0000ff", "#ff00ff"].map((color) => <button key={color} onClick={() => setField("maskColor", color)} className="nodrag nopan h-4 w-4 rounded-sm border border-neutral-600" style={{ backgroundColor: color }} />)}</div></div>
+            <Slider label="Opacity" value={Number(data.maskOpacity ?? 1)} min={0} max={1} step={0.05} onChange={(value) => setField("maskOpacity", value)} />
+            <Checkbox checked={Boolean(data.useShortestDuration ?? true)} onChange={(checked) => setField("useShortestDuration", checked)} label="Use Shortest Duration" />
+          </>
+        );
+      case "extractFrameCustom":
+        return (
+          <>
+            {renderPreview("h-32")}
+            <div className="grid grid-cols-3 gap-2"><div><FieldLabel>Frame</FieldLabel><NumberInput value={Number(data.frameIndex ?? 0)} min={0} onChange={(value) => setField("frameIndex", value)} /></div><div><FieldLabel>Time</FieldLabel><NumberInput value={Number(data.frameTime ?? 0)} min={0} step={0.1} onChange={(value) => setField("frameTime", value)} /></div><div><FieldLabel>FPS</FieldLabel><NumberInput value={Number(data.fps ?? 30)} min={1} onChange={(value) => setField("fps", value)} /></div></div>
+            <button onClick={() => regenerateNode(id)} className="nodrag nopan rounded-sm bg-[#242424] px-2 py-1.5 text-[10px] text-neutral-300 hover:bg-neutral-700">Extract Frame</button>
+          </>
+        );
+      case "frameComposer":
+        return (
+          <>
+            {renderPreview("h-32")}
+            <div><FieldLabel>Region Position</FieldLabel><Segmented value={(data.regionPosition as "left" | "right" | "top" | "bottom") ?? "left"} options={["left", "right", "top", "bottom"]} onChange={(value) => setField("regionPosition", value)} /></div>
+            <div><FieldLabel>Reference Distribution</FieldLabel><SelectInput value={(data.referenceDistribution as "single" | "perFrame" | "interval" | "all") ?? "single"} options={["single", "perFrame", "interval", "all"]} labels={{ single: "Single (first)", perFrame: "One per frame", interval: "One per interval", all: "All every frame" }} onChange={(value) => setField("referenceDistribution", value)} /></div>
+            <NumberInput value={Number(data.regionSize ?? 320)} min={1} onChange={(value) => setField("regionSize", value)} />
+            <Slider label="Reference opacity" value={Number(data.referenceOpacity ?? 0.35)} min={0} max={1} step={0.05} onChange={(value) => setField("referenceOpacity", value)} />
+          </>
+        );
+      case "forEachStart":
+        return <>{renderPreview("h-36")}<TextArea value={data.inputText ?? ""} onChange={(value) => setField("inputText", value)} placeholder="Connect items" rows={3} /><NumberInput value={Number(data.currentIndex ?? 0)} min={0} onChange={(value) => setField("currentIndex", value)} /></>;
+      case "forEachEnd":
+        return <>{renderPreview("h-36")}<p className="text-[10px] text-neutral-500">Collects image, video, text, and audio items from loop branches.</p></>;
       case "actionDirector":
-        return <div><FieldLabel>Mode</FieldLabel><SelectInput value={(data.mode as "pose" | "depth" | "canny" | "normal" | "shaded" | "alpha") ?? "canny"} options={["pose", "depth", "canny", "normal", "shaded", "alpha"]} onChange={(value) => setField("mode", value)} /></div>;
+        return (
+          <>
+            <Segmented value={(data.mode as "pose" | "depth" | "canny" | "normal" | "shaded" | "alpha") ?? "pose"} options={["pose", "depth", "canny", "normal", "shaded", "alpha"]} labels={{ pose: "OpenPose", depth: "Depth", canny: "Canny", normal: "Normal", shaded: "Shaded", alpha: "Alpha" }} onChange={(value) => setField("mode", value)} />
+            {renderPreview("h-52")}
+            <Segmented value={(data.outputKind as "image" | "video") ?? "image"} options={["image", "video"]} labels={{ image: "Image", video: "Video" }} onChange={(value) => setField("outputKind", value)} />
+            <SelectInput value={String(`${data.width ?? 512}x${data.height ?? 512}`)} options={ACTION_PRESETS.map((p) => `${p.width}x${p.height}`)} labels={Object.fromEntries(ACTION_PRESETS.map((p) => [`${p.width}x${p.height}`, p.label]))} onChange={(value) => {
+              const preset = ACTION_PRESETS.find((item) => `${item.width}x${item.height}` === value);
+              if (preset) updateNodeData(id, { width: preset.width, height: preset.height } as Partial<WorkflowNodeData>);
+            }} />
+            <div className="grid grid-cols-2 gap-2"><div><FieldLabel>W x H</FieldLabel><NumberInput value={Number(data.width ?? 512)} min={1} onChange={(value) => setField("width", value)} /></div><div><FieldLabel>&nbsp;</FieldLabel><NumberInput value={Number(data.height ?? 512)} min={1} onChange={(value) => setField("height", value)} /></div></div>
+            <div className="space-y-1"><FieldLabel>Characters</FieldLabel><div className="rounded-sm bg-[#1a1a1a] p-2 text-[10px] text-neutral-400">Char 1 <button className="float-right rounded-sm bg-blue-600 px-1 text-white">Sel</button></div></div>
+            <button className="nodrag nopan rounded-sm bg-blue-700 px-2 py-1 text-[10px] text-white">Capture Frame</button>
+          </>
+        );
       case "urlSpawner": {
         const counts = parseUrls(String(data.urls ?? "")).reduce<Record<string, number>>((acc, url) => {
           const kind = classifyUrl(url) ?? "unknown";
@@ -465,41 +653,33 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
         }, {});
         return (
           <>
-            <textarea value={String(data.urls ?? "")} onChange={(event) => setField("urls", event.target.value)} className="nodrag nopan h-28 rounded border border-neutral-700 bg-neutral-900 p-2 text-[11px] text-neutral-100" />
-            <div className="flex flex-wrap gap-1 text-[10px] text-neutral-400">
-              {Object.entries(counts).map(([kind, count]) => <span key={kind} className="rounded bg-neutral-900 px-1.5 py-0.5">{kind}: {count}</span>)}
-            </div>
-            <button onClick={spawnUrls} className="nodrag nopan rounded bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-500">Spawn Nodes</button>
+            <FieldLabel>Paste one URL per line. Click Spawn to create input nodes.</FieldLabel>
+            <TextArea value={String(data.urls ?? "")} onChange={(value) => setField("urls", value)} placeholder="https://example.com/photo.jpg" rows={5} />
+            <div className="flex flex-wrap gap-1 text-[10px] text-neutral-400">{Object.entries(counts).map(([kind, count]) => <span key={kind} className="rounded bg-[#171717] px-1.5 py-0.5">{kind}: {count}</span>)}</div>
+            <button onClick={spawnUrls} className="nodrag nopan rounded-sm bg-blue-700 px-2 py-1.5 text-[10px] font-medium text-white hover:bg-blue-600">Spawn Nodes</button>
           </>
         );
       }
       case "mediaDownload":
         return (
           <>
-            <input value={String(data.inputUrl ?? "")} onChange={(event) => setField("inputUrl", event.target.value)} placeholder="https://..." className="nodrag nopan w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-100" />
-            <div className="grid grid-cols-2 gap-2">
-              <div><FieldLabel>Format</FieldLabel><SelectInput value={(data.format as "video" | "audio") ?? "video"} options={["video", "audio"]} onChange={(value) => setField("format", value)} /></div>
-              <div><FieldLabel>Quality</FieldLabel><SelectInput value={(data.quality as "best" | "medium" | "low") ?? "best"} options={["best", "medium", "low"]} onChange={(value) => setField("quality", value)} /></div>
-            </div>
+            <div><FieldLabel>URL (or connect Prompt above)</FieldLabel><TextInput value={String(data.inputUrl ?? "")} onChange={(value) => setField("inputUrl", value)} placeholder="https://youtube.com/watch?v=..." /></div>
+            <div><FieldLabel>Format</FieldLabel><Segmented value={(data.format as "video" | "audio") ?? "video"} options={["video", "audio"]} labels={{ video: "Video", audio: "Audio" }} onChange={(value) => setField("format", value)} /></div>
+            <div><FieldLabel>Quality</FieldLabel><SelectInput value={String(data.quality ?? "720p")} options={["best", "1080p", "720p", "480p"]} labels={{ best: "Best (largest file)" }} onChange={(value) => setField("quality", value)} /></div>
+            <PreviewWell height="h-20" label="Paste a URL above and run" />
           </>
         );
-      case "extractFrameCustom":
-        return (
-          <div className="grid grid-cols-3 gap-2">
-            <div><FieldLabel>Time</FieldLabel><NumberInput value={Number(data.frameTime ?? 0)} min={0} step={0.1} onChange={(value) => setField("frameTime", value)} /></div>
-            <div><FieldLabel>Frame</FieldLabel><NumberInput value={Number(data.frameIndex ?? 0)} min={0} onChange={(value) => setField("frameIndex", value)} /></div>
-            <div><FieldLabel>FPS</FieldLabel><NumberInput value={Number(data.fps ?? 30)} min={1} onChange={(value) => setField("fps", value)} /></div>
-          </div>
-        );
-      case "frameComposer":
-        return <div><FieldLabel>Reference opacity</FieldLabel><RangeInput value={Number(data.referenceOpacity ?? 0.35)} min={0} max={1} step={0.05} onChange={(value) => setField("referenceOpacity", value)} /></div>;
       case "audioEnvironment":
         return (
-          <div className="grid grid-cols-2 gap-2">
-            {(["bass", "mid", "treble"] as const).map((field) => <div key={field}><FieldLabel>{field}</FieldLabel><RangeInput value={Number(data[field] ?? 0)} min={-24} max={24} onChange={(value) => setField(field, value)} /></div>)}
-            <div><FieldLabel>Gain</FieldLabel><RangeInput value={Number(data.gain ?? 1)} min={0} max={2} step={0.05} onChange={(value) => setField("gain", value)} /></div>
-            <label className="col-span-2 flex items-center gap-2 text-[11px] text-neutral-300"><input type="checkbox" checked={Boolean(data.bypass)} onChange={(event) => setField("bypass", event.target.checked)} /> Bypass</label>
-          </div>
+          <>
+            {data.outputAudio || data.sourceAudio ? renderPreview("h-16") : <PreviewWell height="h-16" label="Connect audio and run" />}
+            <div className="grid grid-cols-2 gap-2"><div><FieldLabel>Preset</FieldLabel><SelectInput value={String(data.preset ?? "studioNarration")} options={["studioNarration", "smallRoom", "farRoom", "hall", "phone", "anotherRoom", "custom"]} labels={{ studioNarration: "Studio Narration", smallRoom: "Small Room", farRoom: "Far Room", anotherRoom: "Another Room" }} onChange={(value) => setField("preset", value)} /></div><div><FieldLabel>Tone</FieldLabel><SelectInput value={String(data.tone ?? "neutral")} options={["neutral", "warm", "cold", "muffled"]} labels={{ neutral: "Neutral", warm: "Warm", cold: "Cold", muffled: "Muffled" }} onChange={(value) => setField("tone", value)} /></div></div>
+            <div><FieldLabel>Output Format</FieldLabel><SelectInput value={String(data.outputFormat ?? "wav")} options={["wav", "mp3"]} labels={{ wav: "WAV (uncompressed)", mp3: "MP3 (128 kbps)" }} onChange={(value) => setField("outputFormat", value)} /></div>
+            <Slider label="Distance" value={Number(data.distance ?? 0.1)} min={0} max={1} step={0.01} onChange={(value) => setField("distance", value)} />
+            <Slider label="Reverb Wet" value={Number(data.reverbWet ?? 0.02)} min={0} max={1} step={0.01} onChange={(value) => setField("reverbWet", value)} />
+            <Slider label="Pan" value={Number(data.pan ?? 0)} min={-1} max={1} step={0.01} onChange={(value) => setField("pan", value)} />
+            <Checkbox checked={Boolean(data.bypass)} onChange={(checked) => setField("bypass", checked)} label="Bypass" />
+          </>
         );
       default:
         return null;
@@ -509,24 +689,34 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
   const canExecute = Boolean(blueprint?.canExecute);
 
   return (
-    <BaseNode id={id} selected={selected} hasError={data.status === "error"} contentClassName="flex h-full flex-col gap-2 p-3">
+    <BaseNode
+      id={id}
+      selected={selected}
+      hasError={data.status === "error"}
+      className="!bg-[#242424] !border-neutral-700/80"
+      contentClassName="flex h-full flex-col gap-2 p-3 text-[10px]"
+    >
       {renderHandles()}
       <div className="flex items-center justify-between gap-2">
-        <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-neutral-300">{blueprint?.label ?? nodeType}</div>
-        {canExecute ? (
-          <button
-            onClick={() => regenerateNode(id)}
-            disabled={isRunning}
-            className="nodrag nopan rounded bg-neutral-700 px-2 py-1 text-[10px] font-medium text-neutral-100 hover:bg-neutral-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Run
-          </button>
-        ) : null}
+        <div className="truncate text-[9px] font-semibold uppercase tracking-wide text-neutral-400">{blueprint?.label ?? nodeType}</div>
+        <div className="flex items-center gap-1">
+          <MiniIconButton title="Node options">
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75v.01M12 12v.01M12 17.25v.01" />
+            </svg>
+          </MiniIconButton>
+          {canExecute ? (
+            <MiniIconButton title="Run node" onClick={() => regenerateNode(id)}>
+              <svg className={`h-3 w-3 ${isRunning ? "animate-pulse" : ""}`} fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </MiniIconButton>
+          ) : null}
+        </div>
       </div>
-      {renderPreview()}
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">{renderControls()}</div>
       {data.status === "loading" ? <div className="h-1 rounded bg-blue-500" /> : null}
-      {data.error ? <div className="rounded bg-red-950/50 px-2 py-1 text-[10px] text-red-300">{data.error}</div> : null}
+      {data.error ? <div className="rounded-sm bg-red-950/50 px-2 py-1 text-[10px] text-red-300">{data.error}</div> : null}
       {nodeType === "urlSpawner" && data.lastSpawnedCount ? <div className="text-[10px] text-neutral-500">Spawned {Number(data.lastSpawnedCount)} nodes</div> : null}
     </BaseNode>
   );

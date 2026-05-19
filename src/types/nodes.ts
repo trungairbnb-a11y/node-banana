@@ -539,6 +539,34 @@ export interface UtilityNodeData extends BaseNodeData {
   outputJson?: string | null;
   outputLora?: string | null;
   outputKind?: "image" | "video" | "audio" | "text" | "json" | "lora" | null;
+  activeTab?: string;
+  preset?: string;
+  quality?: string;
+  maskColor?: string;
+  maskOpacity?: number;
+  useShortestDuration?: boolean;
+  regionPosition?: "left" | "right" | "top" | "bottom";
+  regionSize?: number;
+  referenceDistribution?: "single" | "perFrame" | "interval" | "all";
+  fps?: number;
+  tone?: string;
+  outputFormat?: string;
+  distance?: number;
+  reverbWet?: number;
+  pan?: number;
+  saturation?: number;
+  gain?: number;
+  contrast?: number;
+  gamma?: number;
+  blackPoint?: number;
+  whitePoint?: number;
+  redGain?: number;
+  greenGain?: number;
+  blueGain?: number;
+  keepAspectRatio?: boolean;
+  scaleBy?: "width" | "height";
+  characters?: Array<{ id: string; name: string }>;
+  clips?: Array<{ id: string; url: string }>;
 }
 
 export interface TextSplitterNodeData extends UtilityNodeData {
@@ -578,6 +606,9 @@ export interface ReformatNodeData extends UtilityNodeData {
   height: number;
   mode: "contain" | "cover" | "stretch";
   background: string;
+  preset?: string;
+  keepAspectRatio?: boolean;
+  scaleBy?: "width" | "height";
 }
 
 export interface CropNodeData extends UtilityNodeData {
@@ -608,6 +639,14 @@ export interface ColorCorrectionNodeData extends UtilityNodeData {
   contrast: number;
   saturation: number;
   grayscale: number;
+  activeTab?: "color" | "levels";
+  gain: number;
+  gamma: number;
+  blackPoint: number;
+  whitePoint: number;
+  redGain: number;
+  greenGain: number;
+  blueGain: number;
 }
 
 export interface ForEachStartNodeData extends UtilityNodeData {
@@ -631,6 +670,11 @@ export interface ActionDirectorNodeData extends UtilityNodeData {
   outputImage: string | null;
   outputVideo: string | null;
   mode: "pose" | "depth" | "canny" | "normal" | "shaded" | "alpha";
+  preset?: string;
+  width?: number;
+  height?: number;
+  characters?: Array<{ id: string; name: string }>;
+  clips?: Array<{ id: string; url: string }>;
 }
 
 export interface UrlSpawnerNodeData extends UtilityNodeData {
@@ -641,7 +685,7 @@ export interface UrlSpawnerNodeData extends UtilityNodeData {
 export interface MediaDownloadNodeData extends UtilityNodeData {
   inputUrl: string;
   format: "video" | "audio";
-  quality: "best" | "medium" | "low";
+  quality: "best" | "1080p" | "720p" | "480p" | "medium" | "low";
   outputVideo: string | null;
   outputAudio: string | null;
 }
@@ -650,6 +694,9 @@ export interface VideoMaskOverlayNodeData extends UtilityNodeData {
   sourceVideo: string | null;
   maskVideo: string | null;
   outputVideo: string | null;
+  maskColor?: string;
+  maskOpacity?: number;
+  useShortestDuration?: boolean;
 }
 
 export interface ExtractFrameCustomNodeData extends UtilityNodeData {
@@ -665,6 +712,10 @@ export interface FrameComposerNodeData extends UtilityNodeData {
   outputVideo: string | null;
   referenceImages: string[];
   referenceOpacity: number;
+  regionPosition?: "left" | "right" | "top" | "bottom";
+  regionSize?: number;
+  referenceDistribution?: "single" | "perFrame" | "interval" | "all";
+  fps?: number;
 }
 
 export interface AudioEnvironmentNodeData extends UtilityNodeData {
@@ -675,6 +726,12 @@ export interface AudioEnvironmentNodeData extends UtilityNodeData {
   treble: number;
   gain: number;
   bypass: boolean;
+  preset?: string;
+  tone?: string;
+  outputFormat?: "wav" | "mp3";
+  distance?: number;
+  reverbWet?: number;
+  pan?: number;
 }
 
 /**
