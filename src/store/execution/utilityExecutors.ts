@@ -18,7 +18,7 @@ import type {
   WorkflowNodeData,
 } from "@/types";
 import {
-  actionMapImage,
+  bakeActionDirectorVideoOutputs,
   blurImage,
   colorCorrectImage,
   compositeImages,
@@ -26,6 +26,7 @@ import {
   equalizeAudio,
   extractVideoFrame,
   reformatImage,
+  renderActionDirectorImageOutputs,
 } from "@/utils/utilityProcessing";
 import type { NodeExecutionContext, NodeExecutor } from "./types";
 
@@ -275,16 +276,72 @@ export async function executeActionDirector(ctx: NodeExecutionContext): Promise<
     const inputs = ctx.getConnectedInputs(ctx.node.id);
     const sourceImage = inputs.images[0] ?? data.sourceImage;
     const sourceVideo = inputs.videos[0] ?? data.sourceVideo;
+    const outputMode = data.outputMode ?? data.outputKind ?? "image";
+    const width = Math.max(1, Number(data.width ?? 512));
+    const height = Math.max(1, Number(data.height ?? 512));
+    const mode = data.mode ?? "pose";
+
+    if (outputMode === "video") {
+      if (sourceVideo && typeof MediaRecorder === "undefined") {
+        setComplete(ctx, {
+          sourceVideo,
+          outputVideo: sourceVideo,
+          outputPoseVideo: sourceVideo,
+          outputDepthVideo: sourceVideo,
+          outputCannyVideo: sourceVideo,
+          outputNormalVideo: sourceVideo,
+          outputShadedVideo: sourceVideo,
+          outputAlphaVideo: sourceVideo,
+          outputKind: "video",
+          outputMode: "video",
+        } as Partial<WorkflowNodeData>);
+        return;
+      }
+      const videos = await bakeActionDirectorVideoOutputs(width, height, data.frameCount ?? 48, data.fps ?? 24);
+      setComplete(ctx, {
+        sourceVideo: sourceVideo ?? null,
+        outputVideo: videos.poseVideo,
+        outputPoseVideo: videos.poseVideo,
+        outputDepthVideo: videos.depthVideo,
+        outputCannyVideo: videos.cannyVideo,
+        outputNormalVideo: videos.normalVideo,
+        outputShadedVideo: videos.shadedVideo,
+        outputAlphaVideo: videos.alphaVideo,
+        outputKind: "video",
+        outputMode: "video",
+      } as Partial<WorkflowNodeData>);
+      return;
+    }
+
+    const maps = await renderActionDirectorImageOutputs(sourceImage ?? null, width, height);
+    const selectedOutput = mode === "depth"
+      ? maps.depth
+      : mode === "canny"
+        ? maps.canny
+        : mode === "normal"
+          ? maps.normal
+          : mode === "shaded"
+            ? maps.shaded
+            : mode === "alpha"
+              ? maps.alpha
+              : maps.pose;
+    setComplete(ctx, {
+      sourceImage: sourceImage ?? null,
+      outputImage: selectedOutput,
+      outputPose: maps.pose,
+      outputDepth: maps.depth,
+      outputCanny: maps.canny,
+      outputNormal: maps.normal,
+      outputShaded: maps.shaded,
+      outputAlpha: maps.alpha,
+      outputVideo: null,
+      outputKind: "image",
+      outputMode: "image",
+    } as Partial<WorkflowNodeData>);
+
     if (sourceImage) {
-      const outputImage = await actionMapImage(sourceImage, data.mode);
-      setComplete(ctx, { sourceImage, outputImage, outputVideo: null, outputKind: "image" } as Partial<WorkflowNodeData>);
       return;
     }
-    if (sourceVideo) {
-      setComplete(ctx, { sourceVideo, outputVideo: sourceVideo, outputImage: null, outputKind: "video" } as Partial<WorkflowNodeData>);
-      return;
-    }
-    throw new Error("Connect an image or video to Action Director");
   } catch (error) {
     fail(ctx, error);
   }

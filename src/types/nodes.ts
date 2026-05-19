@@ -534,10 +534,23 @@ export interface UtilityNodeData extends BaseNodeData {
   outputImage?: string | null;
   outputVideo?: string | null;
   outputAudio?: string | null;
+  outputPose?: string | null;
+  outputDepth?: string | null;
+  outputCanny?: string | null;
+  outputNormal?: string | null;
+  outputShaded?: string | null;
+  outputAlpha?: string | null;
+  outputPoseVideo?: string | null;
+  outputDepthVideo?: string | null;
+  outputCannyVideo?: string | null;
+  outputNormalVideo?: string | null;
+  outputShadedVideo?: string | null;
+  outputAlphaVideo?: string | null;
   outputText?: string | null;
   outputItems?: string[];
   outputJson?: string | null;
   outputLora?: string | null;
+  outputMode?: "image" | "video";
   outputKind?: "image" | "video" | "audio" | "text" | "json" | "lora" | null;
   activeTab?: string;
   preset?: string;
@@ -566,8 +579,28 @@ export interface UtilityNodeData extends BaseNodeData {
   keepAspectRatio?: boolean;
   scaleBy?: "width" | "height";
   ease?: string;
-  characters?: Array<{ id: string; name: string }>;
-  clips?: Array<{ id: string; url: string }>;
+  frameCount?: number;
+  currentFrame?: number;
+  isPlaying?: boolean;
+  transformMode?: "move" | "rotate" | "scale" | "none";
+  depthPreviewMode?: boolean;
+  cameraKeyframes?: {
+    start?: number | null;
+    end?: number | null;
+  };
+  characters?: Array<{
+    id: string;
+    name: string;
+    gender?: "M" | "F";
+    selected?: boolean;
+    muted?: boolean;
+    clips?: Array<{ id: string; url: string; name?: string; dataUrl?: string }>;
+  }>;
+  clips?: Array<{ id: string; url: string; name?: string; dataUrl?: string }>;
+  props?: Array<{ id: string; propFile: string; dataUrl?: string; visible?: boolean; loop?: boolean }>;
+  faceMocapVideos?: Array<{ id: string; name: string; dataUrl?: string }>;
+  bindings?: Array<{ id: string; characterId?: string; videoId?: string }>;
+  rigUrl?: string;
 }
 
 export interface TextSplitterNodeData extends UtilityNodeData {
@@ -670,13 +703,47 @@ export interface ActionDirectorNodeData extends UtilityNodeData {
   sourceVideo: string | null;
   outputImage: string | null;
   outputVideo: string | null;
+  outputPose?: string | null;
+  outputDepth?: string | null;
+  outputCanny?: string | null;
+  outputNormal?: string | null;
+  outputShaded?: string | null;
+  outputAlpha?: string | null;
+  outputPoseVideo?: string | null;
+  outputDepthVideo?: string | null;
+  outputCannyVideo?: string | null;
+  outputNormalVideo?: string | null;
+  outputShadedVideo?: string | null;
+  outputAlphaVideo?: string | null;
   mode: "pose" | "depth" | "canny" | "normal" | "shaded" | "alpha";
   preset?: string;
   width?: number;
   height?: number;
   ease?: string;
-  characters?: Array<{ id: string; name: string }>;
-  clips?: Array<{ id: string; url: string }>;
+  outputMode?: "image" | "video";
+  frameCount?: number;
+  fps?: number;
+  currentFrame?: number;
+  isPlaying?: boolean;
+  transformMode?: "move" | "rotate" | "scale" | "none";
+  depthPreviewMode?: boolean;
+  cameraKeyframes?: {
+    start?: number | null;
+    end?: number | null;
+  };
+  characters?: Array<{
+    id: string;
+    name: string;
+    gender?: "M" | "F";
+    selected?: boolean;
+    muted?: boolean;
+    clips?: Array<{ id: string; url: string; name?: string; dataUrl?: string }>;
+  }>;
+  clips?: Array<{ id: string; url: string; name?: string; dataUrl?: string }>;
+  props?: Array<{ id: string; propFile: string; dataUrl?: string; visible?: boolean; loop?: boolean }>;
+  faceMocapVideos?: Array<{ id: string; name: string; dataUrl?: string }>;
+  bindings?: Array<{ id: string; characterId?: string; videoId?: string }>;
+  rigUrl?: string;
 }
 
 export interface UrlSpawnerNodeData extends UtilityNodeData {

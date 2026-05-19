@@ -114,6 +114,35 @@ function fieldOutput(field: string, type: BlueprintOutputType) {
   };
 }
 
+function actionDirectorOutput(node: WorkflowNode, sourceHandle?: string | null): BlueprintOutput {
+  const handle = sourceHandle ?? "openPose";
+  const fields: Record<string, { field: string; type: BlueprintOutputType }> = {
+    pose: { field: "outputPose", type: "image" },
+    openPose: { field: "outputPose", type: "image" },
+    depth: { field: "outputDepth", type: "image" },
+    canny: { field: "outputCanny", type: "image" },
+    normal: { field: "outputNormal", type: "image" },
+    shaded: { field: "outputShaded", type: "image" },
+    alpha: { field: "outputAlpha", type: "image" },
+    "pose-video": { field: "outputPoseVideo", type: "video" },
+    "video-pose": { field: "outputPoseVideo", type: "video" },
+    "video-openPose": { field: "outputPoseVideo", type: "video" },
+    "depth-video": { field: "outputDepthVideo", type: "video" },
+    "video-depth": { field: "outputDepthVideo", type: "video" },
+    "canny-video": { field: "outputCannyVideo", type: "video" },
+    "video-canny": { field: "outputCannyVideo", type: "video" },
+    "normal-video": { field: "outputNormalVideo", type: "video" },
+    "video-normal": { field: "outputNormalVideo", type: "video" },
+    "shaded-video": { field: "outputShadedVideo", type: "video" },
+    "video-shaded": { field: "outputShadedVideo", type: "video" },
+    "alpha-video": { field: "outputAlphaVideo", type: "video" },
+    "video-alpha": { field: "outputAlphaVideo", type: "video" },
+  };
+  const resolved = fields[handle] ?? fields.openPose;
+  const value = data(node)[resolved.field];
+  return { type: resolved.type, value: typeof value === "string" ? value : null };
+}
+
 const passthroughDefault = (type: NodeType): (() => WorkflowNodeData) => () => createDefaultNodeData(type);
 
 const baseBlueprints: Array<Omit<NodeBlueprint, "dimensions" | "createData"> & { dimensions?: { width: number; height: number } }> = [
@@ -162,10 +191,7 @@ const utilityBlueprints: Array<Omit<NodeBlueprint, "dimensions" | "createData">>
   { type: "colorCorrection", label: "Color Correction", category: "Utility", handles: { inputs: ["image", "mask"], outputs: ["image"] }, getOutput: fieldOutput("outputImage", "image"), canExecute: true },
   { type: "forEachStart", label: "For Each Start", category: "Utility", handles: { inputs: ["text", "image", "video", "audio"], outputs: ["text", "image", "video", "audio"] }, getOutput: indexedTextOutput, canExecute: true },
   { type: "forEachEnd", label: "For Each End", category: "Utility", handles: { inputs: ["text", "image", "video", "audio"], outputs: ["text"] }, getOutput: fieldOutput("outputJson", "text"), canExecute: true },
-  { type: "actionDirector", label: "Action Director", category: "Utility", handles: { inputs: ["image", "video"], outputs: ["openPose", "depth", "canny", "normal", "shaded", "alpha", "video-openPose", "video-depth", "video-canny", "video-normal", "video-shaded", "video-alpha"] }, getOutput: (node, sourceHandle) => {
-    if (sourceHandle?.startsWith("video-")) return fieldOutput("outputVideo", "video")(node);
-    return fieldOutput("outputImage", "image")(node);
-  }, canExecute: true },
+  { type: "actionDirector", label: "Action Director", category: "Utility", handles: { inputs: [], outputs: ["openPose", "depth", "canny", "normal", "shaded", "alpha", "video-openPose", "video-depth", "video-canny", "video-normal", "video-shaded", "video-alpha"] }, getOutput: actionDirectorOutput, canExecute: true },
   { type: "urlSpawner", label: "URL Spawner", category: "Utility", handles: { inputs: [], outputs: [] } },
   { type: "mediaDownload", label: "Media Download", category: "Utility", handles: { inputs: ["text"], outputs: ["video", "audio"] }, getOutput: (node) => {
     const d = data(node);

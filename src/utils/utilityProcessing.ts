@@ -33,6 +33,26 @@ export interface CompositorOptions {
   opacity: number;
 }
 
+export type ActionDirectorMapMode = "pose" | "depth" | "canny" | "normal" | "shaded" | "alpha";
+
+export interface ActionDirectorImageOutputs {
+  pose: string;
+  depth: string;
+  canny: string;
+  normal: string;
+  shaded: string;
+  alpha: string;
+}
+
+export interface ActionDirectorVideoOutputs {
+  poseVideo: string;
+  depthVideo: string;
+  cannyVideo: string;
+  normalVideo: string;
+  shadedVideo: string;
+  alphaVideo: string;
+}
+
 function assertBrowserApi(name: string, value: unknown): void {
   if (!value) {
     throw new Error(`${name} is not available in this browser context`);
@@ -246,6 +266,221 @@ export async function actionMapImage(source: string, mode: string): Promise<stri
 
   ctx.putImageData(imageData, 0, 0);
   return canvasToPng(canvas);
+}
+
+function drawActionDirectorFrame(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  mode: ActionDirectorMapMode,
+  frame = 0,
+  frameCount = 48
+): void {
+  const t = frameCount > 1 ? frame / (frameCount - 1) : 0;
+  const sway = Math.sin(t * Math.PI * 2) * width * 0.035;
+  const cx = width / 2 + sway;
+  const cy = height * 0.5;
+  const scale = Math.min(width, height) / 360;
+  const line = Math.max(2, scale * 3);
+  const joint = Math.max(3, scale * 5);
+  const alphaMode = mode === "alpha";
+
+  ctx.clearRect(0, 0, width, height);
+  if (!alphaMode) {
+    const gradient = ctx.createLinearGradient(0, 0, width, height);
+    if (mode === "normal") {
+      gradient.addColorStop(0, "#1d2f66");
+      gradient.addColorStop(0.5, "#16816f");
+      gradient.addColorStop(1, "#6b2b74");
+    } else if (mode === "depth") {
+      gradient.addColorStop(0, "#050505");
+      gradient.addColorStop(1, "#d8d8d8");
+    } else if (mode === "shaded") {
+      gradient.addColorStop(0, "#111111");
+      gradient.addColorStop(1, "#555555");
+    } else {
+      gradient.addColorStop(0, "#050505");
+      gradient.addColorStop(1, "#171717");
+    }
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  const padX = width * 0.14;
+  const padY = height * 0.1;
+  if (!alphaMode) {
+    ctx.save();
+    ctx.strokeStyle = mode === "canny" ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.08)";
+    ctx.lineWidth = Math.max(1, scale);
+    for (let i = 0; i <= 8; i += 1) {
+      const y = height - padY - i * height * 0.055;
+      ctx.beginPath();
+      ctx.moveTo(padX, y);
+      ctx.lineTo(width - padX, y);
+      ctx.stroke();
+    }
+    for (let i = -4; i <= 4; i += 1) {
+      ctx.beginPath();
+      ctx.moveTo(cx + i * width * 0.08, height - padY);
+      ctx.lineTo(cx + i * width * 0.025, height * 0.52);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  const points = {
+    head: [cx, cy - 110 * scale],
+    neck: [cx, cy - 82 * scale],
+    chest: [cx, cy - 45 * scale],
+    pelvis: [cx, cy + 35 * scale],
+    leftHand: [cx - 92 * scale, cy - 54 * scale],
+    rightHand: [cx + 92 * scale, cy - 54 * scale],
+    leftElbow: [cx - 50 * scale, cy - 60 * scale],
+    rightElbow: [cx + 50 * scale, cy - 60 * scale],
+    leftKnee: [cx - 30 * scale, cy + 102 * scale],
+    rightKnee: [cx + 34 * scale, cy + 102 * scale],
+    leftFoot: [cx - 48 * scale, cy + 165 * scale],
+    rightFoot: [cx + 52 * scale, cy + 165 * scale],
+  } satisfies Record<string, [number, number]>;
+
+  const color = (() => {
+    if (alphaMode) return "#ffffff";
+    if (mode === "depth") return "#f7f7f7";
+    if (mode === "canny") return "#ffffff";
+    if (mode === "normal") return "#00e4ff";
+    if (mode === "shaded") return "#d2d2d2";
+    return "#00f090";
+  })();
+
+  const stroke = (from: [number, number], to: [number, number], strokeStyle = color) => {
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = line;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(from[0], from[1]);
+    ctx.lineTo(to[0], to[1]);
+    ctx.stroke();
+  };
+
+  stroke(points.head, points.neck, mode === "pose" ? "#2468ff" : color);
+  stroke(points.neck, points.chest);
+  stroke(points.chest, points.pelvis);
+  stroke(points.neck, points.leftElbow);
+  stroke(points.leftElbow, points.leftHand, mode === "pose" ? "#00e4ff" : color);
+  stroke(points.neck, points.rightElbow);
+  stroke(points.rightElbow, points.rightHand, mode === "pose" ? "#00e4ff" : color);
+  stroke(points.pelvis, points.leftKnee);
+  stroke(points.leftKnee, points.leftFoot, mode === "pose" ? "#2468ff" : color);
+  stroke(points.pelvis, points.rightKnee);
+  stroke(points.rightKnee, points.rightFoot, mode === "pose" ? "#2468ff" : color);
+
+  ctx.fillStyle = color;
+  Object.entries(points).forEach(([name, [x, y]]) => {
+    ctx.beginPath();
+    ctx.arc(x, y, name === "head" ? joint * 1.8 : joint, 0, Math.PI * 2);
+    ctx.fillStyle = mode === "pose" && (name.includes("Hand") || name.includes("Elbow")) ? "#ff2b2b" : color;
+    ctx.fill();
+  });
+}
+
+export function renderActionDirectorSyntheticFrame(
+  width: number,
+  height: number,
+  mode: ActionDirectorMapMode,
+  frame = 0,
+  frameCount = 48
+): string {
+  const canvas = createCanvas(width, height);
+  const ctx = get2d(canvas);
+  drawActionDirectorFrame(ctx, canvas.width, canvas.height, mode, frame, frameCount);
+  return canvasToPng(canvas);
+}
+
+export async function renderActionDirectorImageOutputs(
+  source: string | null,
+  width: number,
+  height: number
+): Promise<ActionDirectorImageOutputs> {
+  if (source) {
+    const [pose, depth, canny, normal, shaded, alpha] = await Promise.all([
+      actionMapImage(source, "pose"),
+      actionMapImage(source, "depth"),
+      actionMapImage(source, "canny"),
+      actionMapImage(source, "normal"),
+      actionMapImage(source, "shaded"),
+      actionMapImage(source, "alpha"),
+    ]);
+    return { pose, depth, canny, normal, shaded, alpha };
+  }
+  const w = Math.max(1, Math.round(width || 512));
+  const h = Math.max(1, Math.round(height || 512));
+  return {
+    pose: renderActionDirectorSyntheticFrame(w, h, "pose"),
+    depth: renderActionDirectorSyntheticFrame(w, h, "depth"),
+    canny: renderActionDirectorSyntheticFrame(w, h, "canny"),
+    normal: renderActionDirectorSyntheticFrame(w, h, "normal"),
+    shaded: renderActionDirectorSyntheticFrame(w, h, "shaded"),
+    alpha: renderActionDirectorSyntheticFrame(w, h, "alpha"),
+  };
+}
+
+async function recordActionDirectorMap(
+  width: number,
+  height: number,
+  frameCount: number,
+  fps: number,
+  mode: ActionDirectorMapMode
+): Promise<string> {
+  assertBrowserApi("MediaRecorder", typeof MediaRecorder !== "undefined" ? MediaRecorder : undefined);
+  const canvas = createCanvas(width, height);
+  const ctx = get2d(canvas);
+  const stream = canvas.captureStream(Math.max(1, fps));
+  const chunks: BlobPart[] = [];
+  const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+    ? "video/webm;codecs=vp9"
+    : MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
+      ? "video/webm;codecs=vp8"
+      : "video/webm";
+  const recorder = new MediaRecorder(stream, { mimeType });
+  const done = new Promise<string>((resolve, reject) => {
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.onerror = () => reject(new Error("Action Director video recording failed"));
+    recorder.onstop = () => {
+      stream.getTracks().forEach((track) => track.stop());
+      blobToDataUrl(new Blob(chunks, { type: mimeType })).then(resolve, reject);
+    };
+  });
+  recorder.start();
+  const frameDelay = 1000 / Math.max(1, fps);
+  for (let frame = 0; frame < Math.max(1, frameCount); frame += 1) {
+    drawActionDirectorFrame(ctx, canvas.width, canvas.height, mode, frame, frameCount);
+    await new Promise((resolve) => setTimeout(resolve, frameDelay));
+  }
+  recorder.stop();
+  return done;
+}
+
+export async function bakeActionDirectorVideoOutputs(
+  width: number,
+  height: number,
+  frameCount: number,
+  fps: number
+): Promise<ActionDirectorVideoOutputs> {
+  const w = Math.max(1, Math.round(width || 512));
+  const h = Math.max(1, Math.round(height || 512));
+  const frames = Math.max(1, Math.min(180, Math.round(frameCount || 48)));
+  const rate = Math.max(1, Math.min(60, Math.round(fps || 24)));
+  const [poseVideo, depthVideo, cannyVideo, normalVideo, shadedVideo, alphaVideo] = await Promise.all([
+    recordActionDirectorMap(w, h, frames, rate, "pose"),
+    recordActionDirectorMap(w, h, frames, rate, "depth"),
+    recordActionDirectorMap(w, h, frames, rate, "canny"),
+    recordActionDirectorMap(w, h, frames, rate, "normal"),
+    recordActionDirectorMap(w, h, frames, rate, "shaded"),
+    recordActionDirectorMap(w, h, frames, rate, "alpha"),
+  ]);
+  return { poseVideo, depthVideo, cannyVideo, normalVideo, shadedVideo, alphaVideo };
 }
 
 export async function extractVideoFrame(

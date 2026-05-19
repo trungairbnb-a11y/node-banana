@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { PointerEvent, ReactNode } from "react";
+import type { ChangeEvent, PointerEvent, ReactNode } from "react";
 import { Handle, Node, NodeProps, Position } from "@xyflow/react";
 import { BaseNode } from "./BaseNode";
 import { HandleLabel } from "./HandleLabel";
@@ -108,6 +108,15 @@ function classifyUrl(url: string): "imageInput" | "videoInput" | "audioInput" | 
 
 function parseUrls(value: string): string[] {
   return value.split(/\s+/).map((item) => item.trim()).filter((item) => /^https?:\/\//i.test(item));
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function FieldLabel({ children }: { children: ReactNode }) {
@@ -420,23 +429,58 @@ function ActionDirectorPreview({ image }: { image?: string | null }) {
   );
 }
 
-function ActionTinyButton({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "blue" | "cyan" | "red" }) {
+function ActionTinyButton({
+  children,
+  tone = "neutral",
+  onClick,
+  title,
+}: {
+  children: ReactNode;
+  tone?: "neutral" | "blue" | "cyan" | "red";
+  onClick?: () => void;
+  title?: string;
+}) {
   const toneClass = {
     neutral: "border-neutral-700 bg-[#191919] text-neutral-400",
     blue: "border-blue-700 bg-blue-700/70 text-white",
     cyan: "border-cyan-700 bg-cyan-700/70 text-white",
     red: "border-red-700 bg-red-800/80 text-white",
   }[tone];
-  return <button className={`nodrag nopan rounded-sm border px-1.5 py-0.5 text-[8px] leading-none ${toneClass}`}>{children}</button>;
+  return <button title={title} onClick={onClick} className={`nodrag nopan rounded-sm border px-1.5 py-0.5 text-[8px] leading-none ${toneClass}`}>{children}</button>;
 }
 
-function ActionRowButton({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "red" | "teal" }) {
-  const toneClass = tone === "red"
+function ActionRowButton({
+  children,
+  tone = "neutral",
+  active = false,
+  disabled = false,
+  onClick,
+  title,
+}: {
+  children: ReactNode;
+  tone?: "neutral" | "red" | "teal";
+  active?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+  title?: string;
+}) {
+  const toneClass = active
+    ? "bg-cyan-700 text-white hover:bg-cyan-600"
+    : tone === "red"
     ? "bg-red-900/80 text-red-100 hover:bg-red-800"
     : tone === "teal"
       ? "bg-cyan-700 text-white hover:bg-cyan-600"
       : "bg-[#1a1a1a] text-neutral-300 hover:bg-neutral-700";
-  return <button className={`nodrag nopan rounded-sm px-1.5 py-0.5 text-[8px] ${toneClass}`}>{children}</button>;
+  return (
+    <button
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      className={`nodrag nopan rounded-sm px-1.5 py-0.5 text-[8px] disabled:cursor-not-allowed disabled:opacity-35 ${toneClass}`}
+    >
+      {children}
+    </button>
+  );
 }
 
 function MaskPainterSurface({
@@ -552,6 +596,10 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
   const getConnectedInputs = useWorkflowStore((state) => state.getConnectedInputs);
   const isRunning = useWorkflowStore((state) => state.isRunning);
   const handles = getBlueprintHandles(nodeType);
+  const actionAnimationInputRef = useRef<HTMLInputElement>(null);
+  const actionClipInputRef = useRef<HTMLInputElement>(null);
+  const actionPropInputRef = useRef<HTMLInputElement>(null);
+  const actionMocapInputRef = useRef<HTMLInputElement>(null);
 
   const connected = useMemo(() => getConnectedInputs(id), [id, getConnectedInputs, nodes, edges]);
   const sourceImage = data.outputImage ?? data.sourceImage ?? null;
@@ -581,6 +629,61 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
   const setField = useCallback((field: string, value: unknown) => {
     updateNodeData(id, { [field]: value } as Partial<WorkflowNodeData>);
   }, [id, updateNodeData]);
+
+  useEffect(() => {
+    if (nodeType !== "actionDirector" || !data.isPlaying) return;
+    const fps = Math.max(1, Math.min(60, Number(data.fps ?? 24)));
+    const frameCount = Math.max(1, Number(data.frameCount ?? 48));
+    const timer = window.setInterval(() => {
+      const fresh = useWorkflowStore.getState().nodes.find((node) => node.id === id)?.data as UtilityNodeData | undefined;
+      const frame = Number(fresh?.currentFrame ?? 0);
+      updateNodeData(id, { currentFrame: (frame + 1) % frameCount } as Partial<WorkflowNodeData>);
+    }, 1000 / fps);
+    return () => window.clearInterval(timer);
+  }, [data.frameCount, data.fps, data.isPlaying, id, nodeType, updateNodeData]);
+
+  const getFreshActionData = useCallback(() => {
+    return (useWorkflowStore.getState().nodes.find((node) => node.id === id)?.data ?? data) as UtilityNodeData;
+  }, [data, id]);
+
+  const handleActionFileImport = useCallback(async (
+    event: ChangeEvent<HTMLInputElement>,
+    kind: "animation" | "clip" | "prop" | "mocap"
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    const current = getFreshActionData();
+    const selectedCharacter = current.characters?.find((character) => character.selected) ?? current.characters?.[0];
+    if (kind === "prop") {
+      const props = [...(current.props ?? []), {
+        id: `prop-${Date.now()}`,
+        propFile: file.name,
+        dataUrl,
+        visible: true,
+        loop: false,
+      }];
+      updateNodeData(id, { props, status: "complete", error: null } as Partial<WorkflowNodeData>);
+      return;
+    }
+    if (kind === "mocap") {
+      const faceMocapVideos = [...(current.faceMocapVideos ?? []), { id: `mocap-${Date.now()}`, name: file.name, dataUrl }];
+      updateNodeData(id, { faceMocapVideos, status: "complete", error: null } as Partial<WorkflowNodeData>);
+      return;
+    }
+    const clip = { id: `clip-${Date.now()}`, url: "", name: file.name, dataUrl };
+    const clips = [...(current.clips ?? []), clip];
+    const characters = (current.characters ?? []).map((character) => {
+      if (character.id !== selectedCharacter?.id) return character;
+      return {
+        ...character,
+        clips: kind === "clip" ? [...(character.clips ?? []), clip] : character.clips ?? [],
+        animFile: kind === "animation" ? file.name : (character as { animFile?: string }).animFile,
+      };
+    });
+    updateNodeData(id, { clips, characters, status: "complete", error: null } as Partial<WorkflowNodeData>);
+  }, [getFreshActionData, id, updateNodeData]);
 
   const spawnUrls = useCallback(() => {
     const currentNode = nodes.find((node) => node.id === id);
@@ -800,18 +903,76 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
           const actionWidth = Number(data.width ?? 512);
           const actionHeight = Number(data.height ?? 512);
           const presetValue = `${actionWidth}x${actionHeight}`;
+          const outputMode = ((data.outputMode ?? data.outputKind ?? "image") === "video" ? "video" : "image") as "image" | "video";
+          const frameCount = Math.max(1, Number(data.frameCount ?? 48));
+          const currentFrame = Math.max(0, Math.min(frameCount - 1, Number(data.currentFrame ?? 0)));
+          const characters = data.characters ?? [{ id: "char-1", name: "Char 1", gender: "M" as const, selected: true, muted: false, clips: [] }];
+          const selectedCharacter = characters.find((character) => character.selected) ?? characters[0];
+          const props = data.props ?? [];
+          const mocapVideos = data.faceMocapVideos ?? [];
+          const bindings = data.bindings ?? [];
+          const transformMode = (data.transformMode as "move" | "rotate" | "scale" | "none" | undefined) ?? "move";
+          const setOutputMode = (value: "image" | "video") => updateNodeData(id, { outputMode: value, outputKind: value } as Partial<WorkflowNodeData>);
+          const setCurrentFrame = (value: number) => updateNodeData(id, { currentFrame: Math.max(0, Math.min(frameCount - 1, value)) } as Partial<WorkflowNodeData>);
+          const addCharacter = () => {
+            const nextIndex = characters.length + 1;
+            updateNodeData(id, {
+              characters: [
+                ...characters.map((character) => ({ ...character, selected: false })),
+                { id: `char-${Date.now()}`, name: `Char ${nextIndex}`, gender: "M", selected: true, muted: false, clips: [] },
+              ],
+            } as Partial<WorkflowNodeData>);
+          };
+          const patchCharacter = (characterId: string, patch: Record<string, unknown>) => {
+            updateNodeData(id, {
+              characters: characters.map((character) => character.id === characterId ? { ...character, ...patch } : character),
+            } as Partial<WorkflowNodeData>);
+          };
+          const selectCharacter = (characterId: string) => {
+            updateNodeData(id, {
+              characters: characters.map((character) => ({ ...character, selected: character.id === characterId })),
+            } as Partial<WorkflowNodeData>);
+          };
+          const removeCharacter = (characterId: string) => {
+            const nextCharacters = characters.filter((character) => character.id !== characterId);
+            updateNodeData(id, {
+              characters: nextCharacters.length > 0
+                ? nextCharacters.map((character, index) => ({ ...character, selected: index === 0 }))
+                : [{ id: "char-1", name: "Char 1", gender: "M", selected: true, muted: false, clips: [] }],
+            } as Partial<WorkflowNodeData>);
+          };
+          const addUrlClip = () => {
+            if (!selectedCharacter) return;
+            const clip = { id: `clip-${Date.now()}`, url: "", name: "URL clip" };
+            updateNodeData(id, {
+              clips: [...(data.clips ?? []), clip],
+              characters: characters.map((character) => character.id === selectedCharacter.id
+                ? { ...character, clips: [...(character.clips ?? []), clip] }
+                : character),
+              status: "complete",
+              error: null,
+            } as Partial<WorkflowNodeData>);
+          };
+          const addBinding = () => {
+            if (!selectedCharacter || mocapVideos.length === 0) return;
+            updateNodeData(id, {
+              bindings: [...bindings, { id: `binding-${Date.now()}`, characterId: selectedCharacter.id, videoId: mocapVideos[mocapVideos.length - 1].id }],
+              status: "complete",
+              error: null,
+            } as Partial<WorkflowNodeData>);
+          };
           return (
             <>
               <ActionDirectorPreview image={adaptivePreviewImage} />
               <div className="grid grid-cols-[42px_1fr] items-center gap-2">
                 <FieldLabel>Mode</FieldLabel>
-                <Segmented value={(data.outputKind as "image" | "video") ?? "image"} options={["image", "video"]} labels={{ image: "Image", video: "Video" }} onChange={(value) => setField("outputKind", value)} />
+                <Segmented value={outputMode} options={["image", "video"]} labels={{ image: "Image", video: "Video" }} onChange={setOutputMode} />
               </div>
               <div className="grid grid-cols-[42px_1fr] items-center gap-2">
                 <FieldLabel>Preset</FieldLabel>
                 <ActionSelectInput value={presetValue} options={ACTION_PRESETS.map((p) => `${p.width}x${p.height}`)} labels={Object.fromEntries(ACTION_PRESETS.map((p) => [`${p.width}x${p.height}`, p.label]))} onChange={(value) => {
                   const preset = ACTION_PRESETS.find((item) => `${item.width}x${item.height}` === value);
-                  if (preset) updateNodeData(id, { width: preset.width, height: preset.height } as Partial<WorkflowNodeData>);
+                  if (preset) updateNodeData(id, { width: preset.width, height: preset.height, preset: value } as Partial<WorkflowNodeData>);
                 }} />
               </div>
               <div className="grid grid-cols-[44px_1fr_1fr] items-end gap-2">
@@ -820,69 +981,93 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
                 <ActionNumberInput value={actionHeight} min={1} onChange={(value) => setField("height", value)} />
               </div>
               <div className="flex items-center gap-1">
-                <button className="nodrag nopan flex h-4 w-4 items-center justify-center rounded-sm bg-[#191919] text-cyan-400">
+                <button onClick={() => setField("isPlaying", !data.isPlaying)} className="nodrag nopan flex h-4 w-4 items-center justify-center rounded-sm bg-[#191919] text-cyan-400">
                   <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                 </button>
-                <input type="range" min={0} max={48} value={0} readOnly className="nodrag nopan h-1 flex-1 accent-cyan-500" />
-                <span className="text-[8px] text-neutral-500">0 / 48</span>
+                <input type="range" min={0} max={frameCount - 1} value={currentFrame} onChange={(event) => setCurrentFrame(Number(event.target.value))} className="nodrag nopan h-1 flex-1 accent-cyan-500" />
+                <span className="text-[8px] text-neutral-500">{currentFrame} / {frameCount}</span>
               </div>
               <div className="space-y-0.5">
                 <div className="flex items-center justify-between">
                   <FieldLabel>Characters</FieldLabel>
-                  <button className="nodrag nopan rounded-sm bg-[#191919] px-1.5 py-0.5 text-[8px] text-neutral-400">+ Add</button>
+                  <button onClick={addCharacter} className="nodrag nopan rounded-sm bg-[#191919] px-1.5 py-0.5 text-[8px] text-neutral-400">+ Add</button>
                 </div>
-                <div className="rounded-sm bg-[#1a1a1a] px-1.5 py-1 text-[9px] text-neutral-400">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-neutral-300">Char 1</span>
-                    <div className="flex gap-1">
-                      <ActionTinyButton tone="blue">M</ActionTinyButton>
-                      <ActionTinyButton tone="cyan">U</ActionTinyButton>
-                      <ActionTinyButton tone="blue">Sel</ActionTinyButton>
-                      <ActionTinyButton>@</ActionTinyButton>
-                      <ActionTinyButton tone="red">x</ActionTinyButton>
+                <div className="max-h-[96px] space-y-1 overflow-y-auto pr-0.5">
+                  {characters.map((character, index) => (
+                    <div key={character.id} className="rounded-sm bg-[#1a1a1a] px-1.5 py-1 text-[9px] text-neutral-400">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate font-medium text-neutral-300">{character.name || `Char ${index + 1}`}</span>
+                        <div className="flex gap-1">
+                          <ActionTinyButton title="Gender" tone={character.gender === "M" ? "blue" : "cyan"} onClick={() => patchCharacter(character.id, { gender: character.gender === "M" ? "F" : "M" })}>{character.gender ?? "M"}</ActionTinyButton>
+                          <ActionTinyButton title="Mute" tone={character.muted ? "red" : "cyan"} onClick={() => patchCharacter(character.id, { muted: !character.muted })}>{character.muted ? "M" : "U"}</ActionTinyButton>
+                          <ActionTinyButton title="Select" tone={character.selected ? "blue" : "neutral"} onClick={() => selectCharacter(character.id)}>Sel</ActionTinyButton>
+                          <ActionTinyButton title="Import animation" onClick={() => { selectCharacter(character.id); actionAnimationInputRef.current?.click(); }}>@</ActionTinyButton>
+                          <ActionTinyButton title="Remove" tone="red" onClick={() => removeCharacter(character.id)}>x</ActionTinyButton>
+                        </div>
+                      </div>
+                      <div className="text-neutral-600">Clips</div>
+                      {(character.clips ?? []).length === 0 ? <div className="text-[8px] text-neutral-600">--</div> : null}
+                      {(character.clips ?? []).slice(0, 2).map((clip) => <div key={clip.id} className="truncate text-[8px] text-neutral-500">{clip.name || clip.url || "Clip"}</div>)}
+                      <div className="grid grid-cols-2 gap-1">
+                        <ActionRowButton onClick={() => { selectCharacter(character.id); actionClipInputRef.current?.click(); }}>+ Add Clip</ActionRowButton>
+                        <ActionRowButton onClick={() => { selectCharacter(character.id); addUrlClip(); }}>URL</ActionRowButton>
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-neutral-600">Clip</div>
-                  <div className="grid grid-cols-[1fr_1fr_auto] gap-1">
-                    <ActionRowButton>+ Add Clip</ActionRowButton>
-                    <ActionRowButton>URL</ActionRowButton>
-                    <ActionRowButton>Import Prop</ActionRowButton>
-                  </div>
+                  ))}
                 </div>
               </div>
               <div className="space-y-0.5">
                 <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-                  <FieldLabel>Video pace minicap</FieldLabel>
-                  <ActionRowButton>Import Video</ActionRowButton>
+                  <FieldLabel>Props</FieldLabel>
+                  <ActionRowButton onClick={() => actionPropInputRef.current?.click()}>Import Prop</ActionRowButton>
                 </div>
-                <ActionRowButton>+ Add Binding</ActionRowButton>
+                {props.length === 0 ? <div className="text-[8px] text-neutral-600">No props</div> : props.slice(-2).map((prop) => <div key={prop.id} className="truncate rounded-sm bg-[#151515] px-1.5 py-0.5 text-[8px] text-neutral-400">{prop.propFile}</div>)}
+              </div>
+              <div className="space-y-0.5">
+                <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+                  <FieldLabel>Yedp Face Mocap</FieldLabel>
+                  <ActionRowButton onClick={() => actionMocapInputRef.current?.click()}>Import Video</ActionRowButton>
+                </div>
+                {mocapVideos.length === 0 ? <div className="text-[8px] text-neutral-600">No mocap</div> : <div className="truncate text-[8px] text-neutral-500">{mocapVideos[mocapVideos.length - 1].name}</div>}
+                <ActionRowButton disabled={!selectedCharacter || mocapVideos.length === 0} onClick={addBinding}>+ Add Binding</ActionRowButton>
+                {bindings.length > 0 ? <div className="text-[8px] text-cyan-500">{bindings.length} binding{bindings.length === 1 ? "" : "s"}</div> : null}
               </div>
               <div className="space-y-0.5">
                 <FieldLabel>Depth</FieldLabel>
                 <div className="grid grid-cols-5 gap-1">
-                  <ActionRowButton>Preview Off</ActionRowButton>
-                  <ActionRowButton>Move</ActionRowButton>
-                  <ActionRowButton>Rotate</ActionRowButton>
-                  <ActionRowButton>Scale</ActionRowButton>
-                  <ActionRowButton tone="red">Dead</ActionRowButton>
+                  <ActionRowButton active={Boolean(data.depthPreviewMode)} onClick={() => setField("depthPreviewMode", !data.depthPreviewMode)}>{data.depthPreviewMode ? "Preview ON" : "Preview OFF"}</ActionRowButton>
+                  <ActionRowButton active={transformMode === "move"} onClick={() => setField("transformMode", "move")}>Move</ActionRowButton>
+                  <ActionRowButton active={transformMode === "rotate"} onClick={() => setField("transformMode", "rotate")}>Rotate</ActionRowButton>
+                  <ActionRowButton active={transformMode === "scale"} onClick={() => setField("transformMode", "scale")}>Scale</ActionRowButton>
+                  <ActionRowButton tone="red" active={transformMode === "none"} onClick={() => setField("transformMode", "none")}>Desel</ActionRowButton>
                 </div>
               </div>
               <div className="space-y-0.5">
                 <FieldLabel>Camera keyframes</FieldLabel>
                 <div className="grid grid-cols-[1fr_1fr_auto] gap-1">
-                  <ActionRowButton>Set Start</ActionRowButton>
-                  <ActionRowButton>Set End</ActionRowButton>
-                  <ActionRowButton>Clear Keyframes</ActionRowButton>
+                  <ActionRowButton active={data.cameraKeyframes?.start === currentFrame} onClick={() => setField("cameraKeyframes", { ...(data.cameraKeyframes ?? {}), start: currentFrame })}>Set Start</ActionRowButton>
+                  <ActionRowButton active={data.cameraKeyframes?.end === currentFrame} onClick={() => setField("cameraKeyframes", { ...(data.cameraKeyframes ?? {}), end: currentFrame })}>Set End</ActionRowButton>
+                  <ActionRowButton onClick={() => setField("cameraKeyframes", { start: null, end: null })}>Clear Keyframes</ActionRowButton>
                 </div>
               </div>
               <div className="grid grid-cols-[42px_1fr] items-center gap-2">
                 <FieldLabel>Ease</FieldLabel>
-                <ActionSelectInput value={String(data.ease ?? "linear")} options={["linear", "ease-in", "ease-out", "ease-in-out"]} labels={{ linear: "linear", "ease-in": "ease in", "ease-out": "ease out", "ease-in-out": "ease in out" }} onChange={(value) => setField("ease", value)} />
+                <ActionSelectInput value={String(data.ease ?? "linear")} options={["linear", "easeIn", "easeOut", "easeInOut"]} onChange={(value) => setField("ease", value)} />
               </div>
-              <ActionRowButton tone="teal">Capture Frame</ActionRowButton>
+              <ActionRowButton tone="teal" disabled={data.status === "loading"} onClick={() => regenerateNode(id)}>
+                {data.status === "loading" ? (outputMode === "video" ? `BAKING ${Math.round(Number(data.progress ?? 0))}%` : "RENDERING...") : outputMode === "video" ? "Bake Video" : "Capture Frame"}
+              </ActionRowButton>
               <details className="text-[8px] text-neutral-600">
                 <summary>Advanced</summary>
+                <div className="mt-1 space-y-1">
+                  <FieldLabel>Rig URL override</FieldLabel>
+                  <TextInput value={String(data.rigUrl ?? "")} onChange={(value) => setField("rigUrl", value)} placeholder="/action-director/Yedp_Rig.glb" />
+                </div>
               </details>
+              <input ref={actionAnimationInputRef} type="file" accept=".fbx,.bvh,.glb,.gltf" className="hidden" onChange={(event) => void handleActionFileImport(event, "animation")} />
+              <input ref={actionClipInputRef} type="file" accept=".fbx,.bvh,.glb,.gltf" className="hidden" onChange={(event) => void handleActionFileImport(event, "clip")} />
+              <input ref={actionPropInputRef} type="file" accept=".glb,.gltf,.fbx,.obj" className="hidden" onChange={(event) => void handleActionFileImport(event, "prop")} />
+              <input ref={actionMocapInputRef} type="file" accept="video/*" className="hidden" onChange={(event) => void handleActionFileImport(event, "mocap")} />
             </>
           );
         }
