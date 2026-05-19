@@ -165,6 +165,42 @@ describe("executeNanoBanana", () => {
     expect((completeCall![1] as Record<string, unknown>).outputImage).toBe("data:image/png;base64,result");
   });
 
+  it("should prepend history using fresh node data at completion time", async () => {
+    const node = makeNode();
+    const freshNode = makeNode();
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => {
+        (freshNode.data as Record<string, unknown>).imageHistory = [
+          {
+            id: "existing-image",
+            timestamp: 1,
+            prompt: "existing prompt",
+            aspectRatio: "1:1",
+            model: "nano-banana",
+          },
+        ];
+        return Promise.resolve({ success: true, image: "data:image/png;base64,result" });
+      },
+    });
+
+    const ctx = makeCtx(node, {
+      getFreshNode: vi.fn().mockReturnValue(freshNode),
+    });
+    await executeNanoBanana(ctx);
+
+    const calls = (ctx.updateNodeData as ReturnType<typeof vi.fn>).mock.calls;
+    const completeCall = calls.find(
+      (c: unknown[]) => (c[1] as Record<string, unknown>).status === "complete"
+    );
+    const history = (completeCall![1] as Record<string, unknown>).imageHistory as Array<{ id: string }>;
+
+    expect(history).toHaveLength(2);
+    expect(history[0].id).not.toBe("existing-image");
+    expect(history[1].id).toBe("existing-image");
+  });
+
   it("should add to global history on success", async () => {
     const node = makeNode();
     mockFetch.mockResolvedValueOnce({

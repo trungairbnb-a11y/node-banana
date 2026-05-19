@@ -12,6 +12,7 @@ const mockStopWorkflow = vi.fn();
 const mockValidateWorkflow = vi.fn();
 const mockSetEdgeStyle = vi.fn();
 const mockSetModelSearchOpen = vi.fn();
+const mockCreateImageInputBoard = vi.fn();
 const mockUseWorkflowStore = vi.fn();
 
 vi.mock("@/store/workflowStore", () => ({
@@ -86,6 +87,7 @@ const createDefaultState = (overrides = {}) => ({
   modelSearchOpen: false,
   modelSearchProvider: null,
   addNode: mockAddNode,
+  createImageInputBoard: mockCreateImageInputBoard,
   ...overrides,
 });
 
@@ -118,9 +120,27 @@ describe("FloatingActionBar", () => {
 
       await waitFor(() => {
         expect(screen.getByText("Image")).toBeInTheDocument();
+        expect(screen.getByText("Inputs")).toBeInTheDocument();
         expect(screen.getByText("Prompt")).toBeInTheDocument();
         expect(screen.getByText("Output")).toBeInTheDocument();
         expect(screen.getByText("All nodes")).toBeInTheDocument();
+      });
+    });
+
+    it("should create an image input board from the Inputs button", async () => {
+      render(
+        <TestWrapper>
+          <FloatingActionBar />
+        </TestWrapper>
+      );
+
+      fireEvent.click(screen.getByText("Inputs"));
+
+      await waitFor(() => {
+        expect(mockCreateImageInputBoard).toHaveBeenCalledWith(expect.objectContaining({
+          x: expect.any(Number),
+          y: expect.any(Number),
+        }));
       });
     });
 

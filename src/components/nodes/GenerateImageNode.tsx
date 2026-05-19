@@ -20,6 +20,7 @@ import { useAdaptiveImageSrc } from "@/hooks/useAdaptiveImageSrc";
 import { downloadMedia } from "@/utils/downloadMedia";
 import { useShowHandleLabels } from "@/hooks/useShowHandleLabels";
 import { HandleLabel } from "./HandleLabel";
+import { GenerationTraceModal } from "@/components/modals/GenerationTraceModal";
 
 /** Reorder items so they read column-first in a row-based CSS grid.
  *  e.g. [1,2,3,4,5,6,7,8] with 2 cols → [1,5,2,6,3,7,4,8] */
@@ -63,12 +64,13 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
   const updateNodeData = useWorkflowStore((state) => state.updateNodeData);
   const generationsPath = useWorkflowStore((state) => state.generationsPath);
   // Use stable selector for API keys to prevent unnecessary re-fetches
-  const { replicateApiKey, falApiKey, kieApiKey, replicateEnabled, kieEnabled } = useProviderApiKeys();
+  const { openaiApiKey, replicateApiKey, falApiKey, kieApiKey, openaiEnabled, replicateEnabled, kieEnabled } = useProviderApiKeys();
   const [isLoadingCarouselImage, setIsLoadingCarouselImage] = useState(false);
   const [externalModels, setExternalModels] = useState<ProviderModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelsFetchError, setModelsFetchError] = useState<string | null>(null);
   const [isBrowseDialogOpen, setIsBrowseDialogOpen] = useState(false);
+  const [isTraceOpen, setIsTraceOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"primary" | "fallback">("primary");
 
   useEffect(() => {
@@ -95,6 +97,10 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
     const providers: { id: ProviderType; name: string }[] = [];
     // Gemini is always available
     providers.push({ id: "gemini", name: "Gemini" });
+    // OpenAI-compatible image endpoint, including CCS CLIProxy
+    if (openaiEnabled) {
+      providers.push({ id: "openai", name: "OpenAI" });
+    }
     // fal.ai is always available (works without key but rate limited)
     providers.push({ id: "fal", name: "fal.ai" });
     // Add Replicate if configured
@@ -106,7 +112,7 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
       providers.push({ id: "kie", name: "Kie.ai" });
     }
     return providers;
-  }, [replicateEnabled, replicateApiKey, kieEnabled, kieApiKey]);
+  }, [openaiEnabled, replicateEnabled, replicateApiKey, kieEnabled, kieApiKey]);
 
   // Migrate legacy data: derive selectedModel from model field if missing
   useEffect(() => {
@@ -143,6 +149,10 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
       if (kieApiKey) {
         headers["X-Kie-Key"] = kieApiKey;
       }
+      if (openaiApiKey) {
+        headers["X-OpenAI-Key"] = openaiApiKey;
+        headers["X-OpenAI-API-Key"] = openaiApiKey;
+      }
       const response = await deduplicatedFetch(`/api/models?provider=${currentProvider}&capabilities=${capabilities}`, { headers });
       if (response.ok) {
         const data = await response.json();
@@ -165,7 +175,7 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
     } finally {
       setIsLoadingModels(false);
     }
-  }, [currentProvider, replicateApiKey, falApiKey, kieApiKey]);
+  }, [currentProvider, openaiApiKey, replicateApiKey, falApiKey, kieApiKey]);
 
   useEffect(() => {
     fetchModels();
@@ -434,6 +444,9 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
   const aspectRatios = currentModelId === "nano-banana-2" ? EXTENDED_ASPECT_RATIOS : BASE_ASPECT_RATIOS;
   const resolutions = currentModelId === "nano-banana-2" ? RESOLUTIONS_NB2 : RESOLUTIONS_PRO;
   const hasCarouselImages = (nodeData.imageHistory || []).length > 1;
+  const batchProgressLabel = nodeData.__batchProgress && nodeData.__batchProgress.total > 1
+    ? `${nodeData.__batchProgress.completed}/${nodeData.__batchProgress.total}${nodeData.__batchProgress.failed > 0 ? ` (${nodeData.__batchProgress.failed} failed)` : ""}`
+    : null;
 
   // Count visible Gemini controls to match ModelParameters grid/max-width rules
   const geminiControlCount = 2 // Model + Aspect Ratio (always)
@@ -717,7 +730,7 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
             )}
             {/* Loading overlay for generation */}
             {nodeData.status === "loading" && (
-              <div className="absolute inset-0 bg-neutral-900/70 flex items-center justify-center">
+              <div className="absolute inset-0 bg-neutral-900/70 flex flex-col items-center justify-center gap-1">
                 <svg
                   className="w-6 h-6 animate-spin text-white"
                   fill="none"
@@ -737,6 +750,11 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                   />
                 </svg>
+                {batchProgressLabel && (
+                  <span className="text-[10px] font-medium text-white/80">
+                    {batchProgressLabel}
+                  </span>
+                )}
               </div>
             )}
             {/* Error overlay when generation failed */}
@@ -781,6 +799,13 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
             )}
             {/* Download + Clear buttons */}
             <div className="absolute top-1 right-1 flex items-center gap-0.5">
+              <button
+                onClick={() => setIsTraceOpen(true)}
+                className="w-5 h-5 bg-neutral-900/80 hover:bg-blue-700/80 rounded flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+                title="Debug trace"
+              >
+                <span className="text-[10px] leading-none">i</span>
+              </button>
               <button
                 onClick={() => downloadMedia(nodeData.outputImage!, "image").catch(() => {})}
                 className="w-5 h-5 bg-neutral-900/80 hover:bg-neutral-700 rounded flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
@@ -832,26 +857,42 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
           </>
         ) : (
           <div className="w-full h-full min-h-[112px] bg-neutral-900/40 flex flex-col items-center justify-center">
-            {nodeData.status === "loading" ? (
-              <svg
-                className="w-4 h-4 animate-spin text-neutral-400"
-                fill="none"
-                viewBox="0 0 24 24"
+            {nodeData.__latestGenerationTrace && (
+              <button
+                onClick={() => setIsTraceOpen(true)}
+                className="absolute top-1 right-1 w-5 h-5 bg-neutral-900/80 hover:bg-blue-700/80 rounded flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+                title="Debug trace"
               >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
-              </svg>
+                <span className="text-[10px] leading-none">i</span>
+              </button>
+            )}
+            {nodeData.status === "loading" ? (
+              <>
+                <svg
+                  className="w-4 h-4 animate-spin text-neutral-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                {batchProgressLabel && (
+                  <span className="text-[10px] font-medium text-neutral-400">
+                    {batchProgressLabel}
+                  </span>
+                )}
+              </>
             ) : nodeData.status === "error" ? (
               <span className="text-[10px] text-red-400 text-center px-2">
                 {nodeData.error || "Failed"}
@@ -876,6 +917,11 @@ export function GenerateImageNode({ id, data, selected }: NodeProps<NanoBananaNo
         initialCapabilityFilter="image"
       />
     )}
+    <GenerationTraceModal
+      isOpen={isTraceOpen}
+      onClose={() => setIsTraceOpen(false)}
+      trace={nodeData.__latestGenerationTrace}
+    />
     </>
   );
 }

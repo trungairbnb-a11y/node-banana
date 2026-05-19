@@ -29,6 +29,7 @@ export interface LlmGenerateOptions {
 function providerTypeToLlmProvider(p: ProviderType): LLMProvider {
   if (p === "gemini") return "google";
   if (p === "openai") return "openai";
+  if (p === "ccs") return "ccs";
   if (p === "anthropic") return "anthropic";
   // Unsupported provider for LLM — caller will surface an error from /api/llm.
   return p as unknown as LLMProvider;

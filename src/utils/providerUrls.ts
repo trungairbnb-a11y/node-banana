@@ -21,6 +21,8 @@ export function getModelPageUrl(
       return `https://docs.kie.ai/`;
     case "wavespeed":
       return `https://wavespeed.ai`;
+    case "flow":
+      return "https://labs.google/fx/tools/flow";
     default:
       return null;
   }
@@ -41,6 +43,10 @@ export function getProviderDisplayName(provider: ProviderType): string {
       return "Kie.ai";
     case "wavespeed":
       return "WaveSpeed";
+    case "ccs":
+      return "CCS";
+    case "flow":
+      return "Google Flow";
     default:
       return provider;
   }

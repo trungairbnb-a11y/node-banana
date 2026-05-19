@@ -28,6 +28,8 @@ interface BaseNodeProps {
   settingsPanel?: ReactNode;
   /** Tutorial identifier for highlighting */
   dataTutorial?: string;
+  /** Absolute overlay for React Flow handles, aligned to the node border */
+  handles?: ReactNode;
 }
 
 /**
@@ -72,6 +74,7 @@ export function BaseNode({
   settingsExpanded = false,
   settingsPanel,
   dataTutorial,
+  handles,
 }: BaseNodeProps) {
   const currentNodeIds = useWorkflowStore((state) => state.currentNodeIds);
   const setHoveredNodeId = useWorkflowStore((state) => state.setHoveredNodeId);
@@ -327,6 +330,11 @@ export function BaseNode({
         }}
       >
         <div ref={contentRef} style={{ contain: "layout style" }} className={contentClassName ?? (fullBleed ? "flex-1 min-h-0 relative" : "px-3 pb-4 flex-1 min-h-0 overflow-visible flex flex-col")}>{children}</div>
+        {handles && (
+          <div className="absolute inset-0 z-20 overflow-visible pointer-events-none">
+            {handles}
+          </div>
+        )}
       </div>
       {settingsPanel && (
         <div ref={settingsPanelRef}>

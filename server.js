@@ -4,6 +4,7 @@
 
 const { createServer } = require('http');
 const next = require('next');
+const { attachFlowBridge } = require('./src/lib/flow/bridgeRuntime');
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -20,9 +21,13 @@ app.prepare().then(() => {
   // Increase timeout to 10 minutes for long-running video generation
   server.requestTimeout = 600000; // 10 minutes
   server.headersTimeout = 610000; // Slightly longer than requestTimeout
+  attachFlowBridge(server, {
+    expectedBridgeUrl: `ws://${hostname}:${port}/flow-bridge`,
+  });
 
   server.listen(port, () => {
     console.log(`> Ready on http://${hostname}:${port}`);
     console.log(`> Server timeout set to ${server.requestTimeout / 1000 / 60} minutes`);
+    console.log(`> Google Flow extension bridge on ws://${hostname}:${port}/flow-bridge`);
   });
 });

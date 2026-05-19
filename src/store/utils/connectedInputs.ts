@@ -29,6 +29,7 @@ import {
   ConditionalSwitchNodeData,
   MatchMode,
 } from "@/types";
+import { parseVarTags } from "@/utils/parseVarTags";
 
 /**
  * Return type for getConnectedInputs
@@ -49,7 +50,18 @@ export interface ConnectedInputs {
  */
 function isImageHandle(handleId: string | null | undefined): boolean {
   if (!handleId) return false;
-  return handleId === "image" || handleId.startsWith("image-") || handleId.includes("frame");
+  const normalized = handleId.toLowerCase();
+  return (
+    normalized === "image" ||
+    normalized === "reference" ||
+    normalized === "ref" ||
+    normalized.startsWith("image-") ||
+    normalized.includes("frame") ||
+    normalized.includes("image") ||
+    normalized.includes("ref") ||
+    normalized.includes("start") ||
+    normalized.includes("end")
+  );
 }
 
 /**
@@ -60,13 +72,22 @@ function isTextHandle(handleId: string | null | undefined): boolean {
   return handleId === "text" || handleId.startsWith("text-") || handleId.includes("prompt");
 }
 
+function isVideoHandle(handleId: string | null | undefined): boolean {
+  if (!handleId) return false;
+  return handleId === "video" || handleId.startsWith("video-") || handleId.includes("video");
+}
+
 /**
  * Extract output data and type from a source node
  */
 export function getSourceOutput(
   sourceNode: WorkflowNode,
   sourceHandle: string | null | undefined,
-  edgeData?: Record<string, unknown>
+  edgeData?: Record<string, unknown>,
+  allNodes?: WorkflowNode[],
+  allEdges?: WorkflowEdge[],
+  dimmedNodeIds?: Set<string>,
+  resolvingPromptConstructors?: Set<string>
 ): { type: "image" | "text" | "video" | "audio" | "3d"; value: string | null } {
   if (sourceNode.type === "imageInput") {
     return { type: "image", value: (sourceNode.data as ImageInputNodeData).image };
@@ -112,7 +133,17 @@ export function getSourceOutput(
     return { type: "text", value: arrayData.outputText };
   } else if (sourceNode.type === "promptConstructor") {
     const pcData = sourceNode.data as PromptConstructorNodeData;
-    return { type: "text", value: pcData.outputText ?? pcData.template ?? null };
+    const liveOutput =
+      allNodes && allEdges
+        ? resolvePromptConstructorOutput(
+            sourceNode,
+            allNodes,
+            allEdges,
+            dimmedNodeIds,
+            resolvingPromptConstructors
+          )
+        : null;
+    return { type: "text", value: liveOutput ?? pcData.outputText ?? pcData.template ?? null };
   } else if (sourceNode.type === "llmGenerate") {
     return { type: "text", value: (sourceNode.data as LLMGenerateNodeData).outputText };
   } else if (sourceNode.type === "videoFrameGrab") {
@@ -121,6 +152,91 @@ export function getSourceOutput(
     return { type: "image", value: (sourceNode.data as GLBViewerNodeData).capturedImage };
   }
   return { type: "image", value: null };
+}
+
+function getTextForPromptVariable(
+  sourceNode: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[],
+  dimmedNodeIds?: Set<string>,
+  resolvingPromptConstructors?: Set<string>
+): string | null {
+  if (dimmedNodeIds?.has(sourceNode.id)) return null;
+
+  if (sourceNode.type === "prompt") {
+    return (sourceNode.data as PromptNodeData).prompt || null;
+  }
+  if (sourceNode.type === "llmGenerate") {
+    return (sourceNode.data as LLMGenerateNodeData).outputText || null;
+  }
+  if (sourceNode.type === "promptConstructor") {
+    return resolvePromptConstructorOutput(
+      sourceNode,
+      allNodes,
+      allEdges,
+      dimmedNodeIds,
+      resolvingPromptConstructors
+    );
+  }
+  if (sourceNode.type === "array") {
+    const arrayData = sourceNode.data as ArrayNodeData;
+    return arrayData.outputText || null;
+  }
+
+  return null;
+}
+
+function resolvePromptConstructorOutput(
+  sourceNode: WorkflowNode,
+  allNodes: WorkflowNode[],
+  allEdges: WorkflowEdge[],
+  dimmedNodeIds?: Set<string>,
+  resolvingPromptConstructors?: Set<string>
+): string | null {
+  const nodeData = sourceNode.data as PromptConstructorNodeData;
+  const template = nodeData.template || "";
+  const resolving = resolvingPromptConstructors ?? new Set<string>();
+
+  if (resolving.has(sourceNode.id)) {
+    return nodeData.outputText ?? template ?? null;
+  }
+
+  resolving.add(sourceNode.id);
+
+  const directTextNodes = allEdges
+    .filter((edge) => edge.target === sourceNode.id && edge.targetHandle === "text" && !edge.data?.isLoop)
+    .map((edge) => allNodes.find((node) => node.id === edge.source))
+    .filter((node): node is WorkflowNode => node !== undefined && !dimmedNodeIds?.has(node.id));
+
+  const connectedTextNodes = resolveTextSourcesThroughRouters(directTextNodes, allNodes, allEdges);
+  const variableMap: Record<string, string> = {};
+
+  connectedTextNodes.forEach((node) => {
+    if (node.type !== "prompt") return;
+    const promptData = node.data as PromptNodeData;
+    if (promptData.variableName) {
+      variableMap[promptData.variableName] = promptData.prompt || "";
+    }
+  });
+
+  connectedTextNodes.forEach((node) => {
+    const text = getTextForPromptVariable(node, allNodes, allEdges, dimmedNodeIds, resolving);
+    if (!text) return;
+
+    parseVarTags(text).forEach(({ name, value }) => {
+      if (variableMap[name] === undefined) {
+        variableMap[name] = value;
+      }
+    });
+  });
+
+  resolving.delete(sourceNode.id);
+
+  if (!template) {
+    return nodeData.outputText ?? null;
+  }
+
+  return template.replace(/@(\w+)/g, (match, name: string) => variableMap[name] ?? match);
 }
 
 /**
@@ -184,11 +300,13 @@ export function getConnectedInputsPure(
   // Get the target node to check for inputSchema
   const targetNode = nodes.find((n) => n.id === nodeId);
   const inputSchema = (targetNode?.data as { inputSchema?: Array<{ name: string; type: string }> })?.inputSchema;
+  const primaryTextSchemaName = inputSchema?.find((input) => input.type === "text")?.name;
 
   // Build mapping from normalized handle IDs to schema names if schema exists
   const handleToSchemaName: Record<string, string> = {};
   if (inputSchema && inputSchema.length > 0) {
     const imageInputs = inputSchema.filter(i => i.type === "image");
+    const videoInputs = inputSchema.filter(i => i.type === "video");
     const textInputs = inputSchema.filter(i => i.type === "text");
     const audioInputs = inputSchema.filter(i => i.type === "audio");
 
@@ -196,6 +314,13 @@ export function getConnectedInputsPure(
       handleToSchemaName[`image-${index}`] = input.name;
       if (index === 0) {
         handleToSchemaName["image"] = input.name;
+      }
+    });
+
+    videoInputs.forEach((input, index) => {
+      handleToSchemaName[`video-${index}`] = input.name;
+      if (index === 0) {
+        handleToSchemaName["video"] = input.name;
       }
     });
 
@@ -249,11 +374,11 @@ export function getConnectedInputsPure(
         // Determine which type this edge carries based on the source handle
         const edgeType = edge.sourceHandle; // Will be "image", "text", "video", "audio", "3d", or "easeCurve"
 
-        if (edgeType === "image" || (!edgeType && isImageHandle(edge.sourceHandle))) {
+        if (edgeType === "image" || isImageHandle(edgeType) || (!edgeType && isImageHandle(edge.sourceHandle))) {
           images.push(...routerInputs.images);
         } else if (edgeType === "text" || (!edgeType && isTextHandle(edge.sourceHandle))) {
           if (routerInputs.text) text = routerInputs.text;
-        } else if (edgeType === "video") {
+        } else if (edgeType === "video" || isVideoHandle(edgeType)) {
           videos.push(...routerInputs.videos);
         } else if (edgeType === "audio") {
           audio.push(...routerInputs.audio);
@@ -283,11 +408,11 @@ export function getConnectedInputsPure(
         passthroughCache.set(sourceNode.id, switchInputs);
         const edgeType = switchData.inputType;
 
-        if (edgeType === "image") {
+        if (edgeType === "image" || isImageHandle(edgeType)) {
           images.push(...switchInputs.images);
         } else if (edgeType === "text") {
           if (switchInputs.text) text = switchInputs.text;
-        } else if (edgeType === "video") {
+        } else if (edgeType === "video" || isVideoHandle(edgeType)) {
           videos.push(...switchInputs.videos);
         } else if (edgeType === "audio") {
           audio.push(...switchInputs.audio);
@@ -332,7 +457,10 @@ export function getConnectedInputsPure(
       const { type, value } = getSourceOutput(
         sourceNode,
         edge.sourceHandle,
-        (edge.data as Record<string, unknown> | undefined)
+        (edge.data as Record<string, unknown> | undefined),
+        nodes,
+        edges,
+        dimmedNodeIds
       );
 
       if (!value) return;
@@ -353,14 +481,21 @@ export function getConnectedInputsPure(
       // Route to typed arrays based on source output type
       if (type === "3d") {
         model3d = value;
-      } else if (type === "video") {
+      } else if (type === "video" || isVideoHandle(handleId)) {
         videos.push(value);
       } else if (type === "audio") {
         audio.push(value);
       } else if (type === "text" || isTextHandle(handleId)) {
-        // Defensive: ensure text values are always strings
-        // (Guards against corrupted node data during parallel execution)
-        text = typeof value === 'string' ? value : String(value);
+        // Route only the schema's primary text input to the root prompt. Secondary
+        // text inputs remain available through dynamicInputs above.
+        const schemaName = handleId ? handleToSchemaName[handleId] : undefined;
+        const isPrimaryText = primaryTextSchemaName
+          ? schemaName === primaryTextSchemaName || (!handleId && text === null)
+          : !handleId || handleId === "text" || handleId === "text-0" || handleId === "prompt";
+
+        if (isPrimaryText) {
+          text = typeof value === 'string' ? value : String(value);
+        }
       } else if (isImageHandle(handleId) || !handleId) {
         images.push(value);
       }
@@ -417,10 +552,28 @@ export function validateWorkflowPure(
       }
     });
 
-  // Check generateVideo nodes have required text input
+  // Check generateVideo nodes have required inputs. Flow upscale is video-only;
+  // other video modes still need a prompt, with provider-specific image inputs
+  // validated by the generation route so dynamic schemas remain backward compatible.
   nodes
     .filter((n) => n.type === "generateVideo")
     .forEach((node) => {
+      const nodeData = node.data as GenerateVideoNodeData;
+      const modelId = nodeData.selectedModel?.modelId || "";
+      const isFlowUpscale = modelId === "flow-veo-3.1/upscale-video";
+
+      if (isFlowUpscale) {
+        const videoConnected = edges.some(
+          (e) => e.target === node.id &&
+                 !e.data?.isLoop &&
+                 (e.targetHandle === "video" || e.targetHandle?.startsWith("video-"))
+        );
+        if (!videoConnected) {
+          errors.push(`Video node "${node.id}" missing video input`);
+        }
+        return;
+      }
+
       const textConnected = edges.some(
         (e) => e.target === node.id &&
                !e.data?.isLoop &&

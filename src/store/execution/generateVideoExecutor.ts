@@ -10,6 +10,8 @@ import { buildGenerateHeaders } from "@/store/utils/buildApiHeaders";
 import { pollGenerateTask } from "./pollTaskCompletion";
 import { runWithFallback } from "./runWithFallback";
 import type { NodeExecutionContext } from "./types";
+import { buildGenerationTraceContext } from "./generationTraceClient";
+import { logger } from "@/utils/logger";
 
 export interface GenerateVideoOptions {
   /** When true, falls back to stored inputImages/inputPrompt if no connections provide them. */
@@ -27,15 +29,19 @@ export async function executeGenerateVideo(
     getFreshNode,
     signal,
     providerSettings,
+    workflowId,
+    workflowName,
     addIncurredCost,
     generationsPath,
     getNodes,
+    getEdges,
     trackSaveGeneration,
   } = ctx;
 
   const { useStoredFallback = false } = options;
 
-  const { images: connectedImages, text: connectedText, audio: connectedAudio, dynamicInputs } = getConnectedInputs(node.id);
+  const connectedInputs = getConnectedInputs(node.id);
+  const { images: connectedImages, videos: connectedVideos, text: connectedText, audio: connectedAudio, dynamicInputs } = connectedInputs;
 
   // Get fresh node data from store
   const freshNode = getFreshNode(node.id);
@@ -43,14 +49,16 @@ export async function executeGenerateVideo(
 
   // Determine images and text
   let images: string[];
+  let videos: string[];
   let text: string | null;
 
   if (useStoredFallback) {
     images = connectedImages.length > 0 ? connectedImages : nodeData.inputImages;
+    videos = connectedVideos.length > 0 ? connectedVideos : (nodeData.inputVideos || []);
     text = connectedText ?? nodeData.inputPrompt;
     const hasPrompt = text || dynamicInputs.prompt || dynamicInputs.negative_prompt;
     const hasAudio = connectedAudio.length > 0;
-    if (!hasPrompt && images.length === 0 && !hasAudio) {
+    if (!hasPrompt && images.length === 0 && videos.length === 0 && !hasAudio) {
       updateNodeData(node.id, {
         status: "error",
         error: "Missing required inputs",
@@ -59,10 +67,11 @@ export async function executeGenerateVideo(
     }
   } else {
     images = connectedImages;
+    videos = connectedVideos;
     text = connectedText;
     const hasPrompt = text || dynamicInputs.prompt || dynamicInputs.negative_prompt;
     const hasAudio = connectedAudio.length > 0;
-    if (!hasPrompt && images.length === 0 && !hasAudio) {
+    if (!hasPrompt && images.length === 0 && videos.length === 0 && !hasAudio) {
       updateNodeData(node.id, {
         status: "error",
         error: "Missing required inputs",
@@ -81,6 +90,7 @@ export async function executeGenerateVideo(
 
   updateNodeData(node.id, {
     inputImages: images,
+    inputVideos: videos,
     inputPrompt: text,
     status: "loading",
     error: null,
@@ -89,14 +99,28 @@ export async function executeGenerateVideo(
   const runOnce = async (modelToUse: SelectedModel, parametersOverride?: Record<string, unknown>): Promise<void> => {
     const provider = modelToUse.provider;
     const headers = buildGenerateHeaders(provider, providerSettings);
+    const traceContext = buildGenerationTraceContext({
+      sessionId: logger.getSessionId(),
+      nodeId: node.id,
+      nodeType: node.type,
+      workflowId,
+      connectedInputs,
+      nodes: getNodes(),
+      edges: getEdges(),
+      fallbackAttempt: modelToUse.modelId === nodeData.fallbackModel?.modelId ? "fallback" : "primary",
+    });
 
     const requestPayload = {
       images,
+      videos,
       prompt: text,
       selectedModel: modelToUse,
       parameters: parametersOverride ?? nodeData.parameters,
       dynamicInputs,
       mediaType: "video" as const,
+      workflowId,
+      workflowName,
+      traceContext,
     };
 
     try {
@@ -125,6 +149,14 @@ export async function executeGenerateVideo(
       }
 
       let result = await response.json();
+      const submitTrace = result.generationTrace;
+      if (submitTrace?.traceId) {
+        logger.info("node.execution", "Generation trace captured", {
+          nodeId: node.id,
+          traceId: submitTrace.traceId,
+          logPath: submitTrace.logPath,
+        });
+      }
 
       // Handle polling response (long-running Kie tasks)
       if (result.polling) {
@@ -137,11 +169,15 @@ export async function executeGenerateVideo(
           headers,
           signal,
         });
+        if (!result.generationTrace && submitTrace) {
+          result = { ...result, generationTrace: submitTrace };
+        }
 
         if (!result.success) {
           updateNodeData(node.id, {
             status: "error",
             error: result.error || "Video generation failed",
+            __latestGenerationTrace: result.generationTrace,
           });
           throw new Error(result.error || "Video generation failed");
         }
@@ -169,8 +205,8 @@ export async function executeGenerateVideo(
           error: null,
           videoHistory: updatedHistory,
           selectedVideoHistoryIndex: 0,
+          __latestGenerationTrace: result.generationTrace,
         });
-
         // Track cost
         if (modelToUse.provider === "fal" && modelToUse.pricing) {
           addIncurredCost(modelToUse.pricing.amount);
@@ -217,6 +253,7 @@ export async function executeGenerateVideo(
         updateNodeData(node.id, {
           status: "error",
           error: result.error || "Video generation failed",
+          __latestGenerationTrace: result.generationTrace,
         });
         throw new Error(result.error || "Video generation failed");
       }

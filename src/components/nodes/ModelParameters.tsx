@@ -7,7 +7,7 @@ import { useProviderApiKeys } from "@/store/workflowStore";
 import { deduplicatedFetch } from "@/utils/deduplicatedFetch";
 
 // localStorage cache for model schemas (persists across dev server restarts)
-const SCHEMA_CACHE_KEY = "node-banana-schema-cache";
+const SCHEMA_CACHE_KEY = "node-banana-schema-cache-v2";
 const SCHEMA_CACHE_TTL = 48 * 60 * 60 * 1000; // 48 hours
 
 interface SchemaCacheEntry {
@@ -300,12 +300,15 @@ function ParameterInputInner({ param, name, value, onChange }: ParameterInputPro
     if (value === undefined || value === null) return "";
     return String(value);
   });
+  const localValueRef = useRef(localValue);
   const isFocusedRef = useRef(false);
 
   // Sync from store when not focused (external changes)
   useEffect(() => {
     if (!isFocusedRef.current) {
-      setLocalValue(value === undefined || value === null ? "" : String(value));
+      const nextValue = value === undefined || value === null ? "" : String(value);
+      localValueRef.current = nextValue;
+      setLocalValue(nextValue);
     }
   }, [value]);
 
@@ -409,14 +412,16 @@ function ParameterInputInner({ param, name, value, onChange }: ParameterInputPro
             step={param.type === "integer" ? 1 : 0.1}
             onFocus={() => { isFocusedRef.current = true; }}
             onChange={(e) => {
+              localValueRef.current = e.target.value;
               setLocalValue(e.target.value);
             }}
             onBlur={() => {
               isFocusedRef.current = false;
-              if (localValue === "") {
+              const currentValue = localValueRef.current;
+              if (currentValue === "") {
                 handleChange(undefined);
               } else {
-                const num = param.type === "integer" ? parseInt(localValue, 10) : parseFloat(localValue);
+                const num = param.type === "integer" ? parseInt(currentValue, 10) : parseFloat(currentValue);
                 handleChange(isNaN(num) ? undefined : num);
               }
             }}
@@ -454,11 +459,12 @@ function ParameterInputInner({ param, name, value, onChange }: ParameterInputPro
         value={localValue}
         onFocus={() => { isFocusedRef.current = true; }}
         onChange={(e) => {
+          localValueRef.current = e.target.value;
           setLocalValue(e.target.value);
         }}
         onBlur={() => {
           isFocusedRef.current = false;
-          handleChange(localValue || undefined);
+          handleChange(localValueRef.current || undefined);
         }}
         placeholder={param.default !== undefined ? `${param.default}` : undefined}
         className="nodrag nopan flex-1 min-w-0 text-[11px] py-1 px-2 rounded-md bg-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-neutral-600 text-white placeholder:text-neutral-500"

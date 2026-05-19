@@ -22,10 +22,19 @@ interface DirEntry {
   relativePath: string;
 }
 
+function isWindowsPath(inputPath: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(inputPath) || inputPath.startsWith("\\\\");
+}
+
+function getPathImplementation(inputPath: string): path.PlatformPath {
+  return isWindowsPath(inputPath) ? path.win32 : path.posix;
+}
+
 async function collectAllDirectories(
   rootPath: string,
   currentPath: string,
-  depth: number
+  depth: number,
+  pathImpl: path.PlatformPath
 ): Promise<DirEntry[]> {
   if (depth > MAX_DEPTH) return [];
 
@@ -36,13 +45,13 @@ async function collectAllDirectories(
     if (!entry.isDirectory()) continue;
     if (entry.name.startsWith(".") || SKIP_DIRS.has(entry.name)) continue;
 
-    const absPath = path.join(currentPath, entry.name);
-    const relativePath = path.relative(rootPath, absPath);
+    const absPath = pathImpl.join(currentPath, entry.name);
+    const relativePath = pathImpl.relative(rootPath, absPath);
     dirs.push({ absPath, relativePath });
 
     if (depth < MAX_DEPTH) {
       try {
-        const nested = await collectAllDirectories(rootPath, absPath, depth + 1);
+        const nested = await collectAllDirectories(rootPath, absPath, depth + 1, pathImpl);
         dirs.push(...nested);
       } catch {
         // Can't read subdirectory — skip but keep the dir entry itself
@@ -56,14 +65,15 @@ async function collectAllDirectories(
 async function probeWorkflow(
   dirPath: string,
   dirName: string,
-  relativePath: string
+  relativePath: string,
+  pathImpl: path.PlatformPath
 ): Promise<WorkflowListEntry | null> {
   try {
     const files = await fs.readdir(dirPath);
     const jsonFiles = files.filter((f) => f.endsWith(".json"));
 
     for (const jsonFile of jsonFiles) {
-      const filePath = path.join(dirPath, jsonFile);
+      const filePath = pathImpl.join(dirPath, jsonFile);
       try {
         const handle = await fs.open(filePath, "r");
         try {
@@ -119,12 +129,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const allDirs = await collectAllDirectories(parentPath, parentPath, 0);
+    const rootPath = pathValidation.resolved;
+    const pathImpl = getPathImplementation(rootPath);
+    const allDirs = await collectAllDirectories(rootPath, rootPath, 0, pathImpl);
 
     // Probe all directories in parallel
     const results = await Promise.all(
       allDirs.map((dir) =>
-        probeWorkflow(dir.absPath, path.basename(dir.absPath), dir.relativePath)
+        probeWorkflow(dir.absPath, pathImpl.basename(dir.absPath), dir.relativePath, pathImpl)
       )
     );
 

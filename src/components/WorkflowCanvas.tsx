@@ -74,6 +74,7 @@ import { wouldCreateCycle } from "@/store/utils/executionUtils";
 import { parseVarTags } from "@/utils/parseVarTags";
 import { AnnotationModal } from "./AnnotationModal";
 import { ModelSearchDialog } from "./modals/ModelSearchDialog";
+import { RetargetModelsModal } from "./modals/RetargetModelsModal";
 import { LLMFallbackPopover } from "./nodes/LLMFallbackPopover";
 import { browseRegistry } from "@/utils/browseRegistry";
 import { useInlineParameters } from "@/hooks/useInlineParameters";
@@ -82,6 +83,7 @@ import { createPortal } from "react-dom";
 import { useAnnotationStore } from "@/store/annotationStore";
 import { TutorialOverlay } from "./onboarding/TutorialOverlay";
 import { useFTUXStore } from "@/store/ftuxStore";
+import { fetchModelRetargetEnvStatus, scanWorkflowForModelRetargets } from "@/lib/modelRetargeting";
 
 const nodeTypes: NodeTypes = {
   imageInput: ImageInputNode,
@@ -325,6 +327,7 @@ export function WorkflowCanvas() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isBuildingWorkflow, setIsBuildingWorkflow] = useState(false);
   const [showNewProjectSetup, setShowNewProjectSetup] = useState(false);
+  const [showRetargetModels, setShowRetargetModels] = useState(false);
   const [expandingNode, setExpandingNode] = useState<{ id: string; type: string } | null>(null);
 
   // Fallback model picker state
@@ -339,6 +342,19 @@ export function WorkflowCanvas() {
   // FTUX tutorial state (client-side only to avoid SSR hydration issues)
   const [tutorialActive, setTutorialActive] = useState(false);
   const [lockedFeatures, setLockedFeatures] = useState(false);
+
+  const openRetargetModalIfNeeded = useCallback(async () => {
+    const envStatus = await fetchModelRetargetEnvStatus();
+    const state = useWorkflowStore.getState();
+    const issues = scanWorkflowForModelRetargets(
+      state.nodes,
+      state.providerSettings,
+      envStatus
+    );
+    if (issues.length > 0) {
+      setShowRetargetModels(true);
+    }
+  }, []);
 
   useEffect(() => {
     // Subscribe to FTUX store on client-side only
@@ -2074,6 +2090,7 @@ export function WorkflowCanvas() {
           onWorkflowGenerated={async (workflow, directoryPath) => {
             await loadWorkflow(workflow, directoryPath);
             setShowQuickstart(false);
+            await openRetargetModalIfNeeded();
           }}
           onClose={() => setShowQuickstart(false)}
           onNewProject={() => {
@@ -2516,6 +2533,11 @@ export function WorkflowCanvas() {
 
       {/* AnnotationModal is globally managed by annotationStore */}
       <AnnotationModal />
+
+      <RetargetModelsModal
+        isOpen={showRetargetModels}
+        onClose={() => setShowRetargetModels(false)}
+      />
 
       {/* Tutorial overlay */}
       <TutorialOverlay />

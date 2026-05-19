@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useState, useEffect, useMemo, useRef } from "react";
-import { Handle, Position, NodeProps, Node, useReactFlow } from "@xyflow/react";
+import { Handle, Position, NodeProps, Node, useReactFlow, useUpdateNodeInternals } from "@xyflow/react";
 import { BaseNode } from "./BaseNode";
 import { ModelParameters } from "./ModelParameters";
 import { useWorkflowStore, useProviderApiKeys } from "@/store/workflowStore";
@@ -21,14 +21,27 @@ import { browseRegistry } from "@/utils/browseRegistry";
 import { downloadMedia } from "@/utils/downloadMedia";
 import { useShowHandleLabels } from "@/hooks/useShowHandleLabels";
 import { HandleLabel } from "./HandleLabel";
+import { buildFlowParametersForModel, DEFAULT_FLOW_MODEL, getFlowSchemaForModel, FLOW_MODELS } from "@/lib/flow/modes";
+import { GenerationTraceModal } from "@/components/modals/GenerationTraceModal";
 
 // Video generation capabilities
 const VIDEO_CAPABILITIES: ModelCapability[] = ["text-to-video", "image-to-video", "audio-to-video"];
+
+const DEFAULT_FLOW_VIDEO_MODEL: SelectedModel = {
+  provider: "flow",
+  modelId: DEFAULT_FLOW_MODEL.id,
+  displayName: DEFAULT_FLOW_MODEL.name,
+};
 
 /** Returns true for Gemini-native Veo video models */
 function isVeoModel(modelId: string | undefined): boolean {
   if (!modelId) return false;
   return modelId.startsWith("veo-");
+}
+
+function isFlowModel(modelId: string | undefined): boolean {
+  if (!modelId) return false;
+  return modelId.startsWith("flow-veo-3.1/");
 }
 
 /** Build the hardcoded inputSchema for a Veo model, or undefined for non-Veo */
@@ -45,18 +58,25 @@ function buildVeoInputSchema(modelId: string): ModelInputDef[] | undefined {
   return inputs;
 }
 
+function buildFlowInputSchema(modelId: string): ModelInputDef[] | undefined {
+  if (!isFlowModel(modelId)) return undefined;
+  return getFlowSchemaForModel(modelId)?.inputs;
+}
+
 type GenerateVideoNodeType = Node<GenerateVideoNodeData, "generateVideo">;
 
 export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVideoNodeType>) {
   const nodeData = data;
   const updateNodeData = useWorkflowStore((state) => state.updateNodeData);
+  const updateNodeInternals = useUpdateNodeInternals();
   // Use stable selector for API keys to prevent unnecessary re-fetches
-  const { geminiApiKey, replicateApiKey, falApiKey, kieApiKey, replicateEnabled, kieEnabled } = useProviderApiKeys();
+  const { geminiApiKey, replicateApiKey, falApiKey, kieApiKey, replicateEnabled, kieEnabled, flowEnabled } = useProviderApiKeys();
   const generationsPath = useWorkflowStore((state) => state.generationsPath);
   const [externalModels, setExternalModels] = useState<ProviderModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelsFetchError, setModelsFetchError] = useState<string | null>(null);
   const [isBrowseDialogOpen, setIsBrowseDialogOpen] = useState(false);
+  const [isTraceOpen, setIsTraceOpen] = useState(false);
   const [isLoadingCarouselVideo, setIsLoadingCarouselVideo] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"primary" | "fallback">("primary");
 
@@ -80,6 +100,46 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
   }, [id]);
 
   const currentProvider: ProviderType = nodeData.selectedModel?.provider || "fal";
+  const inputSchemaKey = useMemo(
+    () =>
+      (nodeData.inputSchema ?? [])
+        .map((input) => `${input.type}:${input.name}`)
+        .join("|"),
+    [nodeData.inputSchema]
+  );
+
+  // React Flow caches handle positions/ids. Dynamic schemas replace default
+  // handles such as "text" with indexed handles such as "text-0", so refresh
+  // the node internals whenever that handle set changes.
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, inputSchemaKey, updateNodeInternals]);
+
+  // Repair saved video nodes that can no longer run: either old Gemini nodes
+  // after Gemini was disabled, or Flow placeholders with no concrete model.
+  useEffect(() => {
+    const shouldUseDefaultFlow =
+      (nodeData.selectedModel?.provider === "flow" && !nodeData.selectedModel.modelId) ||
+      (nodeData.selectedModel?.provider === "gemini" &&
+        !geminiApiKey &&
+        flowEnabled);
+
+    if (shouldUseDefaultFlow) {
+      updateNodeData(id, {
+        selectedModel: DEFAULT_FLOW_VIDEO_MODEL,
+        parameters: buildFlowParametersForModel(DEFAULT_FLOW_VIDEO_MODEL.modelId, nodeData.parameters || {}),
+        inputSchema: buildFlowInputSchema(DEFAULT_FLOW_VIDEO_MODEL.modelId),
+      });
+    }
+  }, [flowEnabled, geminiApiKey, id, nodeData.parameters, nodeData.selectedModel?.modelId, nodeData.selectedModel?.provider, updateNodeData]);
+
+  useEffect(() => {
+    const flowSchema = buildFlowInputSchema(nodeData.selectedModel?.modelId || "");
+    const hasFlowImageInput = nodeData.inputSchema?.some((input) => input.type === "image");
+    if (nodeData.selectedModel?.provider === "flow" && flowSchema && !hasFlowImageInput) {
+      updateNodeData(id, { inputSchema: flowSchema });
+    }
+  }, [id, nodeData.inputSchema, nodeData.selectedModel?.modelId, nodeData.selectedModel?.provider, updateNodeData]);
 
   // Get enabled providers
   const enabledProviders = useMemo(() => {
@@ -90,6 +150,10 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
     }
     // fal.ai is always available (works without key but rate limited)
     providers.push({ id: "fal", name: "fal.ai" });
+    // Google Flow uses local browser sessions rather than an API key
+    if (flowEnabled) {
+      providers.push({ id: "flow", name: "Google Flow" });
+    }
     // Add Replicate if configured
     if (replicateEnabled && replicateApiKey) {
       providers.push({ id: "replicate", name: "Replicate" });
@@ -99,7 +163,7 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
       providers.push({ id: "kie", name: "Kie.ai" });
     }
     return providers;
-  }, [geminiApiKey, replicateEnabled, replicateApiKey, kieEnabled, kieApiKey]);
+  }, [geminiApiKey, flowEnabled, replicateEnabled, replicateApiKey, kieEnabled, kieApiKey]);
 
   // Fetch models from external providers when provider changes
   const fetchModels = useCallback(async () => {
@@ -187,11 +251,28 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
         updateNodeData(id, {
           selectedModel: newSelectedModel,
           parameters: {},
-          inputSchema: buildVeoInputSchema(model.id),
+          inputSchema: buildVeoInputSchema(model.id) ?? buildFlowInputSchema(model.id),
         });
       }
     },
     [id, currentProvider, externalModels, updateNodeData]
+  );
+
+  const handleFlowModeChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const model = FLOW_MODELS.find((candidate) => candidate.id === e.target.value);
+      if (!model) return;
+      updateNodeData(id, {
+        selectedModel: {
+          provider: "flow",
+          modelId: model.id,
+          displayName: model.name,
+        },
+        parameters: buildFlowParametersForModel(model.id, nodeData.parameters || {}),
+        inputSchema: buildFlowInputSchema(model.id),
+      });
+    },
+    [id, nodeData.parameters, updateNodeData]
   );
 
   const handleClearVideo = useCallback(() => {
@@ -326,7 +407,7 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
     updateNodeData(id, {
       selectedModel: newSelectedModel,
       parameters: {},
-      inputSchema: buildVeoInputSchema(model.id),
+      inputSchema: buildVeoInputSchema(model.id) ?? buildFlowInputSchema(model.id),
     });
     setIsBrowseDialogOpen(false);
   }, [id, updateNodeData]);
@@ -388,9 +469,173 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
             return { ...node, style: { ...node.style, width: newSize.width, height: newSize.height } };
           })
         );
+
+        requestAnimationFrame(() => updateNodeInternals(id));
       });
     });
-  }, [id, nodeData.outputVideo, setNodes]);
+  }, [id, nodeData.outputVideo, setNodes, updateNodeInternals]);
+
+  const videoHandles = useMemo(() => {
+    const getHandleColor = (type: string) => {
+      if (type === "image") return "var(--handle-color-image)";
+      if (type === "video") return "var(--handle-color-video)";
+      if (type === "audio") return "var(--handle-color-audio)";
+      return "var(--handle-color-text)";
+    };
+
+    const schemaHandles = (() => {
+      if (!nodeData.inputSchema || nodeData.inputSchema.length === 0) {
+        return [
+          {
+            id: "image",
+            type: "image" as const,
+            label: "Image",
+            schemaName: null,
+            description: null,
+          },
+          {
+            id: "text",
+            type: "text" as const,
+            label: "Prompt",
+            schemaName: null,
+            description: null,
+          },
+        ];
+      }
+
+      const handles: Array<{
+        id: string;
+        type: "image" | "video" | "text" | "audio";
+        label: string;
+        schemaName: string | null;
+        description: string | null;
+      }> = [];
+      const imageInputs = nodeData.inputSchema.filter((input) => input.type === "image");
+      const videoInputs = nodeData.inputSchema.filter((input) => input.type === "video");
+      const audioInputs = nodeData.inputSchema.filter((input) => input.type === "audio");
+      const textInputs = nodeData.inputSchema.filter((input) => input.type === "text");
+
+      imageInputs.forEach((input, index) => {
+        handles.push({
+          id: index === 0 ? "image" : `image-${index}`,
+          type: "image",
+          label: input.label,
+          schemaName: input.name,
+          description: input.description || null,
+        });
+      });
+
+      videoInputs.forEach((input, index) => {
+        handles.push({
+          id: index === 0 ? "video" : `video-${index}`,
+          type: "video",
+          label: input.label,
+          schemaName: input.name,
+          description: input.description || null,
+        });
+      });
+
+      audioInputs.forEach((input, index) => {
+        handles.push({
+          id: index === 0 ? "audio" : `audio-${index}`,
+          type: "audio",
+          label: input.label,
+          schemaName: input.name,
+          description: input.description || null,
+        });
+      });
+
+      textInputs.forEach((input, index) => {
+        handles.push({
+          id: index === 0 ? "text" : `text-${index}`,
+          type: "text",
+          label: input.label,
+          schemaName: input.name,
+          description: input.description || null,
+        });
+      });
+
+      return handles;
+    })();
+
+    const imageHandles = schemaHandles.filter((handle) => handle.type === "image");
+    const videoInputHandles = schemaHandles.filter((handle) => handle.type === "video");
+    const audioHandles = schemaHandles.filter((handle) => handle.type === "audio");
+    const textHandles = schemaHandles.filter((handle) => handle.type === "text");
+    const groupCount = [
+      imageHandles.length > 0,
+      videoInputHandles.length > 0,
+      audioHandles.length > 0,
+      textHandles.length > 0,
+    ].filter(Boolean).length;
+    const totalSlots =
+      imageHandles.length +
+      videoInputHandles.length +
+      audioHandles.length +
+      textHandles.length +
+      Math.max(groupCount - 1, 0);
+
+    const renderedInputHandles = schemaHandles.map((handle) => {
+      let adjustedIndex: number;
+      if (handle.type === "image") {
+        adjustedIndex = imageHandles.findIndex((item) => item.id === handle.id);
+      } else if (handle.type === "video") {
+        const gapAfterImages = imageHandles.length > 0 ? 1 : 0;
+        adjustedIndex = imageHandles.length + gapAfterImages + videoInputHandles.findIndex((item) => item.id === handle.id);
+      } else if (handle.type === "audio") {
+        const gapAfterImages = imageHandles.length > 0 && (videoInputHandles.length > 0 || audioHandles.length > 0 || textHandles.length > 0) ? 1 : 0;
+        const gapAfterVideos = videoInputHandles.length > 0 ? 1 : 0;
+        adjustedIndex = imageHandles.length + gapAfterImages + videoInputHandles.length + gapAfterVideos + audioHandles.findIndex((item) => item.id === handle.id);
+      } else {
+        const gapAfterImages = imageHandles.length > 0 && (videoInputHandles.length > 0 || audioHandles.length > 0 || textHandles.length > 0) ? 1 : 0;
+        const gapAfterVideos = videoInputHandles.length > 0 && (audioHandles.length > 0 || textHandles.length > 0) ? 1 : 0;
+        const gapAfterAudio = audioHandles.length > 0 && textHandles.length > 0 ? 1 : 0;
+        adjustedIndex = imageHandles.length + gapAfterImages + videoInputHandles.length + gapAfterVideos + audioHandles.length + gapAfterAudio + textHandles.findIndex((item) => item.id === handle.id);
+      }
+
+      const topPercent = totalSlots > 0 ? ((adjustedIndex + 1) / (totalSlots + 1)) * 100 : 50;
+
+      return (
+        <React.Fragment key={`${handle.type}-${handle.id}`}>
+          <Handle
+            type="target"
+            position={Position.Left}
+            id={handle.id}
+            style={{
+              top: `${topPercent}%`,
+              zIndex: 10,
+              pointerEvents: "auto",
+            }}
+            data-handletype={handle.type}
+            data-schema-name={handle.schemaName || undefined}
+            isConnectable={true}
+            title={handle.description || handle.label}
+          />
+          <HandleLabel
+            label={handle.label}
+            side="target"
+            color={getHandleColor(handle.type)}
+            top={`calc(${topPercent}% - 18px)`}
+            visible={showLabels}
+          />
+        </React.Fragment>
+      );
+    });
+
+    return (
+      <>
+        {renderedInputHandles}
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="video"
+          data-handletype="video"
+          style={{ top: "50%", zIndex: 10, pointerEvents: "auto" }}
+        />
+        <HandleLabel label="Video" side="source" color="var(--handle-color-video)" visible={showLabels} />
+      </>
+    );
+  }, [nodeData.inputSchema, showLabels]);
 
   return (
     <>
@@ -402,6 +647,7 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
       fullBleed
       settingsExpanded={inlineParametersEnabled && isParamsExpanded}
       aspectFitMedia={nodeData.outputVideo}
+      handles={videoHandles}
       settingsPanel={inlineParametersEnabled ? (
         <InlineParameterPanel
           expanded={isParamsExpanded}
@@ -409,6 +655,30 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
           nodeId={id}
         >
           {/* Tab bar for primary/fallback settings */}
+          {currentProvider === "flow" && (
+            <div className="mb-2 min-w-0 space-y-1">
+              <label
+                htmlFor={`${id}-flow-mode`}
+                className="block text-[9px] uppercase tracking-wide text-neutral-500"
+              >
+                Flow Mode
+              </label>
+              <select
+                id={`${id}-flow-mode`}
+                aria-label="Flow Mode"
+                className="nodrag nopan block w-full min-w-0 bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 text-[11px] leading-4 text-neutral-100 focus:outline-none focus:border-blue-500 truncate"
+                value={nodeData.selectedModel?.modelId || DEFAULT_FLOW_VIDEO_MODEL.modelId}
+                onChange={handleFlowModeChange}
+              >
+                {FLOW_MODELS.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {nodeData.fallbackModel && (
             <SettingsTabBar
               activeTab={settingsTab}
@@ -441,26 +711,30 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
         </InlineParameterPanel>
       ) : undefined}
     >
+      {false && (
+        <>
       {/* Dynamic input handles based on model schema */}
-      {nodeData.inputSchema && nodeData.inputSchema.length > 0 ? (
-        // Render handles from schema, sorted by type (images first, text second)
+      {nodeData.inputSchema?.length ? (
+        // Render handles from schema, sorted by type (images, videos, audio, text)
         // IMPORTANT: Always render "image" and "text" handles to maintain connection
         // compatibility. Schema may only have text inputs (text-to-video models) but
         // we still need the image handle to preserve connections made before model selection.
         (() => {
           const imageInputs = nodeData.inputSchema!.filter(i => i.type === "image");
+          const videoInputs = nodeData.inputSchema!.filter(i => i.type === "video");
           const audioInputs = nodeData.inputSchema!.filter(i => i.type === "audio");
           const textInputs = nodeData.inputSchema!.filter(i => i.type === "text");
 
           // Always include at least one image and one text handle for connection stability
           const hasImageInput = imageInputs.length > 0;
+          const hasVideoInput = videoInputs.length > 0;
           const hasAudioInput = audioInputs.length > 0;
           const hasTextInput = textInputs.length > 0;
 
           // Build the handles array: schema inputs + fallback defaults if missing
           const handles: Array<{
             id: string;
-            type: "image" | "text" | "audio";
+            type: "image" | "video" | "text" | "audio";
             label: string;
             schemaName: string | null;
             description: string | null;
@@ -487,6 +761,19 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
               schemaName: null,
               description: "Not used by this model",
               isPlaceholder: true,
+            });
+          }
+
+          if (hasVideoInput) {
+            videoInputs.forEach((input, index) => {
+              handles.push({
+                id: `video-${index}`,
+                type: "video",
+                label: input.label,
+                schemaName: input.name,
+                description: input.description || null,
+                isPlaceholder: false,
+              });
             });
           }
 
@@ -527,15 +814,22 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
             });
           }
 
-          // Calculate positions: group by type order (image, audio, text) with gaps between groups
+          // Calculate positions: group by type order (image, video, audio, text) with gaps between groups
           const imageHandles = handles.filter(h => h.type === "image");
+          const videoHandles = handles.filter(h => h.type === "video");
           const audioHandles = handles.filter(h => h.type === "audio");
           const textHandles = handles.filter(h => h.type === "text");
-          const groupCount = [imageHandles.length > 0, audioHandles.length > 0, textHandles.length > 0].filter(Boolean).length;
-          const totalSlots = imageHandles.length + audioHandles.length + textHandles.length + (groupCount - 1); // gaps between groups
+          const groupCount = [
+            imageHandles.length > 0,
+            videoHandles.length > 0,
+            audioHandles.length > 0,
+            textHandles.length > 0,
+          ].filter(Boolean).length;
+          const totalSlots = imageHandles.length + videoHandles.length + audioHandles.length + textHandles.length + (groupCount - 1); // gaps between groups
 
           const getHandleColor = (type: string) => {
             if (type === "image") return "var(--handle-color-image)";
+            if (type === "video") return "var(--handle-color-video)";
             if (type === "audio") return "var(--handle-color-audio)";
             return "var(--handle-color-text)";
           };
@@ -545,13 +839,18 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
             let adjustedIndex: number;
             if (handle.type === "image") {
               adjustedIndex = imageHandles.findIndex(h => h.id === handle.id);
-            } else if (handle.type === "audio") {
+            } else if (handle.type === "video") {
               const gapAfterImages = imageHandles.length > 0 ? 1 : 0;
-              adjustedIndex = imageHandles.length + gapAfterImages + audioHandles.findIndex(h => h.id === handle.id);
+              adjustedIndex = imageHandles.length + gapAfterImages + videoHandles.findIndex(h => h.id === handle.id);
+            } else if (handle.type === "audio") {
+              const gapAfterImages = imageHandles.length > 0 && (videoHandles.length > 0 || audioHandles.length > 0 || textHandles.length > 0) ? 1 : 0;
+              const gapAfterVideos = videoHandles.length > 0 ? 1 : 0;
+              adjustedIndex = imageHandles.length + gapAfterImages + videoHandles.length + gapAfterVideos + audioHandles.findIndex(h => h.id === handle.id);
             } else {
-              const gapAfterImages = imageHandles.length > 0 && (audioHandles.length > 0 || textHandles.length > 0) ? 1 : 0;
+              const gapAfterImages = imageHandles.length > 0 && (videoHandles.length > 0 || audioHandles.length > 0 || textHandles.length > 0) ? 1 : 0;
+              const gapAfterVideos = videoHandles.length > 0 && (audioHandles.length > 0 || textHandles.length > 0) ? 1 : 0;
               const gapAfterAudio = audioHandles.length > 0 && textHandles.length > 0 ? 1 : 0;
-              adjustedIndex = imageHandles.length + gapAfterImages + audioHandles.length + gapAfterAudio + textHandles.findIndex(h => h.id === handle.id);
+              adjustedIndex = imageHandles.length + gapAfterImages + videoHandles.length + gapAfterVideos + audioHandles.length + gapAfterAudio + textHandles.findIndex(h => h.id === handle.id);
             }
             const topPercent = ((adjustedIndex + 1) / (totalSlots + 1)) * 100;
 
@@ -595,6 +894,15 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
                   type="target"
                   position={Position.Left}
                   id="audio"
+                  style={{ top: "50%", opacity: 0, pointerEvents: "none" }}
+                  isConnectable={false}
+                />
+              )}
+              {hasVideoInput && (
+                <Handle
+                  type="target"
+                  position={Position.Left}
+                  id="video"
                   style={{ top: "50%", opacity: 0, pointerEvents: "none" }}
                   isConnectable={false}
                 />
@@ -645,6 +953,8 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
       />
       {/* Output label */}
       <HandleLabel label="Video" side="source" color="var(--handle-color-video)" visible={showLabels} />
+        </>
+      )}
 
       <div className="relative w-full h-full min-h-0 overflow-hidden rounded-lg">
         {/* Preview area */}
@@ -735,6 +1045,13 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
             {/* Download + Clear buttons */}
             <div className="absolute top-1 right-1 flex items-center gap-0.5">
               <button
+                onClick={() => setIsTraceOpen(true)}
+                className="w-5 h-5 bg-neutral-900/80 hover:bg-blue-700/80 rounded flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+                title="Debug trace"
+              >
+                <span className="text-[10px] leading-none">i</span>
+              </button>
+              <button
                 onClick={() => downloadMedia(nodeData.outputVideo!, "video").catch(() => {})}
                 className="w-5 h-5 bg-neutral-900/80 hover:bg-neutral-700 rounded flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
                 title="Download video"
@@ -785,6 +1102,15 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
           </>
         ) : (
           <div className="w-full h-full min-h-[112px] bg-neutral-900/40 flex flex-col items-center justify-center">
+            {nodeData.__latestGenerationTrace && (
+              <button
+                onClick={() => setIsTraceOpen(true)}
+                className="absolute top-1 right-1 w-5 h-5 bg-neutral-900/80 hover:bg-blue-700/80 rounded flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+                title="Debug trace"
+              >
+                <span className="text-[10px] leading-none">i</span>
+              </button>
+            )}
             {nodeData.status === "loading" ? (
               <svg
                 className="w-4 h-4 animate-spin text-neutral-400"
@@ -843,6 +1169,11 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
         initialCapabilityFilter="video"
       />
     )}
+    <GenerationTraceModal
+      isOpen={isTraceOpen}
+      onClose={() => setIsTraceOpen(false)}
+      trace={nodeData.__latestGenerationTrace}
+    />
     </>
   );
 }

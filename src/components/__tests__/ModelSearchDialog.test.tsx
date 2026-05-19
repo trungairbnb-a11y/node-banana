@@ -17,6 +17,16 @@ const mockIncrementModalCount = vi.fn();
 const mockDecrementModalCount = vi.fn();
 const mockTrackModelUsage = vi.fn();
 const mockUseWorkflowStore = vi.fn();
+let mockProviderApiKeys = {
+  openaiApiKey: null as string | null,
+  replicateApiKey: "test-replicate-key" as string | null,
+  falApiKey: "test-fal-key" as string | null,
+  kieApiKey: null as string | null,
+  wavespeedApiKey: null as string | null,
+  flowEnabled: true,
+  replicateEnabled: true,
+  kieEnabled: false,
+};
 
 vi.mock("@/store/workflowStore", () => ({
   useWorkflowStore: (selector?: (state: unknown) => unknown) => {
@@ -25,14 +35,7 @@ vi.mock("@/store/workflowStore", () => ({
     }
     return mockUseWorkflowStore((s: unknown) => s);
   },
-  useProviderApiKeys: () => ({
-    replicateApiKey: "test-replicate-key",
-    falApiKey: "test-fal-key",
-    kieApiKey: null,
-    wavespeedApiKey: null,
-    replicateEnabled: true,
-    kieEnabled: false,
-  }),
+  useProviderApiKeys: () => mockProviderApiKeys,
 }));
 
 // Mock useReactFlow
@@ -71,10 +74,13 @@ const defaultProviderSettings: ProviderSettings = {
   providers: {
     gemini: { id: "gemini", name: "Gemini", enabled: true, apiKey: null, apiKeyEnvVar: "GEMINI_API_KEY" },
     openai: { id: "openai", name: "OpenAI", enabled: false, apiKey: null },
+    ccs: { id: "ccs", name: "CCS", enabled: false, apiKey: null },
+    anthropic: { id: "anthropic", name: "Anthropic", enabled: false, apiKey: null },
     replicate: { id: "replicate", name: "Replicate", enabled: true, apiKey: "test-replicate-key" },
     fal: { id: "fal", name: "fal.ai", enabled: true, apiKey: "test-fal-key" },
     kie: { id: "kie", name: "Kie.ai", enabled: false, apiKey: null },
     wavespeed: { id: "wavespeed", name: "WaveSpeed", enabled: false, apiKey: null },
+    flow: { id: "flow", name: "Google Flow", enabled: true, apiKey: null },
   },
 };
 
@@ -119,6 +125,16 @@ describe("ModelSearchDialog", () => {
     vi.clearAllMocks();
     localStorage.clear();
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockProviderApiKeys = {
+      openaiApiKey: null,
+      replicateApiKey: "test-replicate-key",
+      falApiKey: "test-fal-key",
+      kieApiKey: null,
+      wavespeedApiKey: null,
+      flowEnabled: true,
+      replicateEnabled: true,
+      kieEnabled: false,
+    };
 
     // Default mock fetch response
     mockFetch.mockResolvedValue({
@@ -748,6 +764,8 @@ describe("ModelSearchDialog", () => {
 
   describe("API Headers", () => {
     it("should include API keys in request headers", async () => {
+      mockProviderApiKeys.openaiApiKey = "test-openai-key";
+
       render(
         <TestWrapper>
           <ModelSearchDialog isOpen={true} onClose={vi.fn()} />
@@ -761,6 +779,8 @@ describe("ModelSearchDialog", () => {
         expect(options.headers).toEqual({
           "X-Replicate-Key": "test-replicate-key",
           "X-Fal-Key": "test-fal-key",
+          "X-OpenAI-Key": "test-openai-key",
+          "X-OpenAI-API-Key": "test-openai-key",
         });
       });
     });

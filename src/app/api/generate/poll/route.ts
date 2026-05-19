@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { GenerateResponse } from "@/types";
 import { checkKieTaskOnce, fetchKieMediaResult, isVeoModel } from "../providers/kie";
 import { buildMediaResponse } from "../route";
+import { pollFlowVideoTask } from "@/lib/flow/engine";
 
 export const maxDuration = 120; // 2 min — enough for media fetch, not for polling
 export const dynamic = 'force-dynamic';
@@ -33,6 +34,34 @@ export async function POST(request: NextRequest) {
         { success: false, error: "taskId and provider are required" },
         { status: 400 }
       );
+    }
+
+    if (provider === "flow") {
+      const result = await pollFlowVideoTask(taskId);
+      if (result.status === "processing") {
+        return NextResponse.json<GenerateResponse>({
+          success: true,
+          polling: true,
+          taskId,
+          pollProvider: provider,
+          pollModelId: modelId,
+          pollModelName: modelName,
+          pollMediaType: mediaType,
+        });
+      }
+
+      if (result.status === "failed") {
+        return NextResponse.json<GenerateResponse>(
+          { success: false, error: result.task.error || "Google Flow generation failed" },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json<GenerateResponse>({
+        success: true,
+        videoUrl: result.task.outputUrl ?? undefined,
+        contentType: "video",
+      });
     }
 
     if (provider !== 'kie') {

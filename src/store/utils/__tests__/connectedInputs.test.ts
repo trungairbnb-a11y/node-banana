@@ -194,14 +194,33 @@ describe("getConnectedInputsPure", () => {
     expect(result.text).toBe("b");
   });
 
-  it("should extract text from promptConstructor outputText", () => {
+  it("should extract live text from promptConstructor template", () => {
     const nodes = [
       makeNode("pc", "promptConstructor", { outputText: "constructed", template: "tmpl" }),
       makeNode("gen", "nanoBanana"),
     ];
     const edges = [makeEdge("pc", "gen", "text")];
     const result = getConnectedInputsPure("gen", nodes, edges);
-    expect(result.text).toBe("constructed");
+    expect(result.text).toBe("tmpl");
+  });
+
+  it("should resolve promptConstructor vars live instead of using stale outputText", () => {
+    const nodes = [
+      makeNode("shotlist", "llmGenerate", {
+        outputText: '<var="shot6">Shot six camera direction</var>',
+      }),
+      makeNode("pc", "promptConstructor", {
+        outputText: '<var="shot1">stale full shotlist</var>',
+        template: "Use @shot6",
+      }),
+      makeNode("gen", "nanoBanana"),
+    ];
+    const edges = [
+      { ...makeEdge("shotlist", "pc", "text"), sourceHandle: "text" },
+      { ...makeEdge("pc", "gen", "text"), sourceHandle: "text" },
+    ] as WorkflowEdge[];
+    const result = getConnectedInputsPure("gen", nodes, edges);
+    expect(result.text).toBe("Use Shot six camera direction");
   });
 
   it("should fallback to template when promptConstructor has no outputText", () => {
@@ -248,6 +267,30 @@ describe("getConnectedInputsPure", () => {
     const edges = [makeEdge("img", "gen", "image-0")];
     const result = getConnectedInputsPure("gen", nodes, edges);
     expect(result.dynamicInputs).toEqual({ image_url: "data:image/png;base64,a" });
+  });
+
+  it("should not let secondary schema text handles overwrite the primary prompt", () => {
+    const nodes = [
+      makeNode("prompt", "prompt", { prompt: "main prompt" }),
+      makeNode("negative", "prompt", { prompt: "no blur" }),
+      makeNode("video", "generateVideo", {
+        inputSchema: [
+          { name: "prompt", type: "text", label: "Prompt" },
+          { name: "negative_prompt", type: "text", label: "Negative" },
+        ],
+      }),
+    ];
+    const edges = [
+      { ...makeEdge("prompt", "video", "text"), sourceHandle: "text" },
+      { ...makeEdge("negative", "video", "text-1"), sourceHandle: "text" },
+    ] as WorkflowEdge[];
+
+    const result = getConnectedInputsPure("video", nodes, edges);
+    expect(result.text).toBe("main prompt");
+    expect(result.dynamicInputs).toEqual({
+      prompt: "main prompt",
+      negative_prompt: "no blur",
+    });
   });
 
   it("should extract easeCurve data", () => {

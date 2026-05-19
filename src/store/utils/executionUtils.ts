@@ -110,6 +110,50 @@ export function chunk<T>(array: T[], size: number): T[][] {
   return chunks;
 }
 
+function isFlowGenerateVideoNode(node: WorkflowNode): boolean {
+  const data = node.data as Record<string, unknown>;
+  const selectedModel = data.selectedModel as { provider?: unknown } | undefined;
+  return node.type === "generateVideo" && selectedModel?.provider === "flow";
+}
+
+/**
+ * Chunk execution batches while keeping Flow video submissions conservative.
+ * Workflow-level parallelism still follows the user setting, but no batch starts
+ * more than two Flow Generate Video jobs unless the user setting is lower.
+ */
+export function chunkWorkflowExecutionNodes(
+  nodes: WorkflowNode[],
+  maxConcurrentCalls: number,
+  flowVideoLimit = 2
+): WorkflowNode[][] {
+  if (!Number.isFinite(maxConcurrentCalls) || maxConcurrentCalls < 1) {
+    throw new Error("Invalid chunk size: must be a positive integer");
+  }
+
+  const maxFlowVideos = Math.max(1, Math.min(maxConcurrentCalls, flowVideoLimit));
+  const chunks: WorkflowNode[][] = [];
+  let current: WorkflowNode[] = [];
+  let flowVideoCount = 0;
+
+  for (const node of nodes) {
+    const isFlowVideo = isFlowGenerateVideoNode(node);
+    const exceedsTotal = current.length >= maxConcurrentCalls;
+    const exceedsFlowVideoLimit = isFlowVideo && flowVideoCount >= maxFlowVideos;
+
+    if (current.length > 0 && (exceedsTotal || exceedsFlowVideoLimit)) {
+      chunks.push(current);
+      current = [];
+      flowVideoCount = 0;
+    }
+
+    current.push(node);
+    if (isFlowVideo) flowVideoCount += 1;
+  }
+
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
 /**
  * Revoke a blob URL if the value is one, to free the underlying memory.
  */

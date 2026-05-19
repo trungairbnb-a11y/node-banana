@@ -30,6 +30,7 @@ vi.mock("@/utils/logger", () => ({
     startSession: vi.fn().mockResolvedValue(undefined),
     endSession: vi.fn().mockResolvedValue(undefined),
     getCurrentSession: vi.fn().mockReturnValue(null),
+    getSessionId: vi.fn().mockReturnValue("test-session"),
   },
 }));
 
@@ -1494,6 +1495,90 @@ describe("workflowStore integration tests", () => {
     });
 
     describe("State updates during execution", () => {
+      it("should batch array prompts through nanoBanana into output gallery", async () => {
+        const prompts: string[] = [];
+        const mockFetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+          if (url !== "/api/generate") {
+            return {
+              ok: true,
+              json: () => Promise.resolve({ success: true }),
+              text: () => Promise.resolve(""),
+            };
+          }
+          const body = JSON.parse(String(init?.body ?? "{}")) as { prompt: string };
+          prompts.push(body.prompt);
+          return {
+            ok: true,
+            json: () => Promise.resolve({
+              success: true,
+              image: `data:image/png;base64,${body.prompt}`,
+            }),
+            text: () => Promise.resolve(""),
+          };
+        });
+        vi.stubGlobal("fetch", mockFetch);
+
+        useWorkflowStore.setState({
+          maxConcurrentCalls: 2,
+          nodes: [
+            createTestNode("array-1", "array", {
+              inputText: "alpha\nbeta\ngamma",
+              splitMode: "newline",
+              delimiter: "*",
+              regexPattern: "",
+              trimItems: true,
+              removeEmpty: true,
+              batchMode: true,
+              selectedOutputIndex: null,
+              outputItems: [],
+              outputText: "[]",
+              error: null,
+            }),
+            createTestNode("nanoBanana-1", "nanoBanana", {
+              aspectRatio: "1:1",
+              resolution: "1K",
+              model: "nano-banana",
+              selectedModel: {
+                provider: "openai",
+                modelId: "gpt-image-2",
+                displayName: "GPT Image 2",
+              },
+              status: "idle",
+              imageHistory: [],
+            }),
+            createTestNode("gallery-1", "outputGallery", {
+              images: [],
+              videos: [],
+            }),
+          ],
+          edges: [
+            createTestEdge("array-1", "nanoBanana-1", "text", "text"),
+            createTestEdge("nanoBanana-1", "gallery-1", "image", "image"),
+          ],
+        });
+
+        const store = useWorkflowStore.getState();
+        await store.executeWorkflow();
+
+        const generateCalls = mockFetch.mock.calls.filter(([url]) => url === "/api/generate");
+        expect(generateCalls).toHaveLength(3);
+        expect(prompts).toEqual(expect.arrayContaining(["alpha", "beta", "gamma"]));
+
+        const galleryNode = useWorkflowStore.getState().nodes.find(n => n.id === "gallery-1");
+        expect(galleryNode?.data).toHaveProperty("images");
+        expect((galleryNode?.data as Record<string, string[]>).images).toEqual(expect.arrayContaining([
+          "data:image/png;base64,alpha",
+          "data:image/png;base64,beta",
+          "data:image/png;base64,gamma",
+        ]));
+        expect((galleryNode?.data as Record<string, string[]>).images).toHaveLength(3);
+
+        const imageNode = useWorkflowStore.getState().nodes.find(n => n.id === "nanoBanana-1");
+        expect((imageNode?.data as Record<string, unknown[]>).imageHistory).toHaveLength(3);
+
+        vi.unstubAllGlobals();
+      });
+
       it("should set node status to complete after successful generation", async () => {
         useWorkflowStore.setState({
           nodes: [
@@ -2310,6 +2395,7 @@ describe("workflowStore integration tests", () => {
 
   describe("Race condition prevention", () => {
     let mockFetch: ReturnType<typeof vi.fn>;
+    const getGenerateCalls = () => mockFetch.mock.calls.filter(([url]) => url === "/api/generate");
 
     beforeEach(() => {
       mockFetch = vi.fn().mockResolvedValue({
@@ -2347,7 +2433,7 @@ describe("workflowStore integration tests", () => {
       await Promise.all([p1, p2]);
 
       // Only one execution should have reached fetch (one nanoBanana node)
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(getGenerateCalls()).toHaveLength(1);
     });
 
     it("should set isRunning synchronously before any await", async () => {
@@ -2399,7 +2485,7 @@ describe("workflowStore integration tests", () => {
       const p2 = store.regenerateNode("nanoBanana-1");
       await Promise.all([p1, p2]);
 
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(getGenerateCalls()).toHaveLength(1);
     });
 
     it("should execute each node exactly once with multiple disconnected nodes", async () => {
@@ -2435,7 +2521,7 @@ describe("workflowStore integration tests", () => {
       await store.executeWorkflow();
 
       // Exactly 3 fetch calls — one per nanoBanana node
-      expect(mockFetch).toHaveBeenCalledTimes(3);
+      expect(getGenerateCalls()).toHaveLength(3);
     });
   });
 
@@ -2469,6 +2555,32 @@ describe("workflowStore integration tests", () => {
       const stored = localStorage.getItem("node-banana-canvas-navigation");
       expect(stored).not.toBeNull();
       expect(JSON.parse(stored!)).toEqual(settings);
+    });
+  });
+
+  describe("Image input board preset", () => {
+    it("creates three image inputs in a green Inputs group", () => {
+      const store = useWorkflowStore.getState();
+      const { groupId, nodeIds } = store.createImageInputBoard({ x: 100, y: 200 });
+      const state = useWorkflowStore.getState();
+
+      expect(groupId).toBeTruthy();
+      expect(nodeIds).toHaveLength(3);
+
+      const group = state.groups[groupId];
+      expect(group).toMatchObject({
+        name: "Inputs",
+        color: "green",
+        position: { x: 100, y: 200 },
+      });
+
+      const boardNodes = state.nodes.filter((node) => nodeIds.includes(node.id));
+      expect(boardNodes).toHaveLength(3);
+      expect(boardNodes.every((node) => node.type === "imageInput")).toBe(true);
+      expect(boardNodes.every((node) => node.groupId === groupId)).toBe(true);
+      expect(boardNodes[2].position.x).toBeGreaterThan(boardNodes[0].position.x);
+      expect(boardNodes[1].position.y).toBeGreaterThan(boardNodes[0].position.y);
+      expect(boardNodes[2].style?.height as number).toBeGreaterThan(boardNodes[0].style?.height as number);
     });
   });
 

@@ -7,6 +7,19 @@ import os from "os";
 
 const execFileAsync = promisify(execFile);
 
+function isWindowsPath(inputPath: string): boolean {
+    return /^[a-zA-Z]:[\\/]/.test(inputPath) || inputPath.startsWith("\\\\");
+}
+
+function getPathImplementation(inputPath: string, homeDir: string): path.PlatformPath {
+    return isWindowsPath(inputPath) || isWindowsPath(homeDir) ? path.win32 : path.posix;
+}
+
+function isWithinDirectory(filePath: string, directoryPath: string, pathImpl: path.PlatformPath): boolean {
+    const relativePath = pathImpl.relative(directoryPath, filePath);
+    return relativePath === "" || (!relativePath.startsWith("..") && !pathImpl.isAbsolute(relativePath));
+}
+
 function isLocalhostRequest(req: NextRequest): boolean {
     const forwarded = req.headers.get("x-forwarded-for");
     if (forwarded) {
@@ -45,12 +58,13 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Normalize and resolve the path to prevent traversal attacks
-        const normalizedPath = path.resolve(inputPath);
-
         // Restrict to user's home directory
         const homeDir = os.homedir();
-        if (!normalizedPath.startsWith(homeDir + path.sep) && normalizedPath !== homeDir) {
+        const pathImpl = getPathImplementation(inputPath, homeDir);
+        const normalizedPath = pathImpl.resolve(inputPath);
+        const normalizedHomeDir = pathImpl.resolve(homeDir);
+
+        if (!isWithinDirectory(normalizedPath, normalizedHomeDir, pathImpl)) {
             return NextResponse.json(
                 { success: false, error: "Path is outside allowed directory" },
                 { status: 403 }
@@ -89,11 +103,11 @@ export async function POST(req: NextRequest) {
             case "linux":
                 // Linux has no universal "reveal in folder" — open parent directory
                 command = "xdg-open";
-                args = [path.dirname(normalizedPath)];
+                args = [pathImpl.dirname(normalizedPath)];
                 break;
             default:
                 command = "xdg-open";
-                args = [path.dirname(normalizedPath)];
+                args = [pathImpl.dirname(normalizedPath)];
         }
 
         try {

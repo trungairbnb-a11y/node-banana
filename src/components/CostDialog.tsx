@@ -20,9 +20,11 @@ function ProviderIcon({ provider }: { provider: ProviderType }) {
     fal: { bg: "bg-purple-500/20", text: "text-purple-300" },
     replicate: { bg: "bg-blue-500/20", text: "text-blue-300" },
     openai: { bg: "bg-teal-500/20", text: "text-teal-300" },
+    ccs: { bg: "bg-cyan-500/20", text: "text-cyan-300" },
     anthropic: { bg: "bg-amber-500/20", text: "text-amber-300" },
     kie: { bg: "bg-orange-500/20", text: "text-orange-300" },
     wavespeed: { bg: "bg-purple-500/20", text: "text-purple-300" },
+    flow: { bg: "bg-cyan-500/20", text: "text-cyan-300" },
   };
 
   const labels: Record<ProviderType, string> = {
@@ -30,9 +32,11 @@ function ProviderIcon({ provider }: { provider: ProviderType }) {
     fal: "f",
     replicate: "R",
     openai: "O",
+    ccs: "C",
     anthropic: "A",
     kie: "K",
     wavespeed: "W",
+    flow: "F",
   };
 
   const color = colors[provider] || colors.gemini;
@@ -53,9 +57,11 @@ function getProviderDisplayName(provider: ProviderType): string {
     fal: "fal.ai",
     replicate: "Replicate",
     openai: "OpenAI",
+    ccs: "CCS",
     anthropic: "Anthropic",
     kie: "Kie.ai",
     wavespeed: "WaveSpeed",
+    flow: "Google Flow",
   };
   return names[provider] || provider;
 }
@@ -76,6 +82,9 @@ function getModelUrl(provider: ProviderType, modelId: string): string | null {
   if (provider === "wavespeed") {
     // modelId format: "wavespeed-ai/model-name"
     return `https://wavespeed.ai`;
+  }
+  if (provider === "flow") {
+    return "https://labs.google/fx/tools/flow";
   }
   return null;
 }

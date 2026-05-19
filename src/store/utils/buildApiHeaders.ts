@@ -10,7 +10,7 @@ import { ProviderType, ProviderSettings, LLMProvider } from "@/types";
 /**
  * Header name mapping for each provider
  */
-const PROVIDER_HEADER_MAP: Record<ProviderType, string> = {
+const PROVIDER_HEADER_MAP: Partial<Record<ProviderType, string>> = {
   gemini: "X-Gemini-API-Key",
   replicate: "X-Replicate-API-Key",
   fal: "X-Fal-API-Key",
@@ -62,6 +62,11 @@ export function buildLlmHeaders(
       headers["X-Gemini-API-Key"] = geminiConfig.apiKey;
     }
   } else if (llmProvider === "openai") {
+    const openaiConfig = providerSettings.providers.openai;
+    if (openaiConfig?.apiKey) {
+      headers["X-OpenAI-API-Key"] = openaiConfig.apiKey;
+    }
+  } else if (llmProvider === "ccs") {
     const openaiConfig = providerSettings.providers.openai;
     if (openaiConfig?.apiKey) {
       headers["X-OpenAI-API-Key"] = openaiConfig.apiKey;

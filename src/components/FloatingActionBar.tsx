@@ -118,6 +118,31 @@ function NodeButton({ type, label, dataTutorial }: NodeButtonProps) {
   );
 }
 
+function InputBoardButton() {
+  const createImageInputBoard = useWorkflowStore((state) => state.createImageInputBoard);
+  const { screenToFlowPosition } = useReactFlow();
+
+  const handleClick = () => {
+    const center = getPaneCenter();
+    const position = screenToFlowPosition({
+      x: center.x,
+      y: center.y,
+    });
+
+    createImageInputBoard(position);
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      title="Create a grouped image input board"
+      className="px-2.5 py-1.5 text-[11px] font-medium text-neutral-400 hover:text-neutral-100 hover:bg-neutral-700 rounded transition-colors"
+    >
+      Inputs
+    </button>
+  );
+}
+
 function GenerateComboButton() {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -484,6 +509,7 @@ export function FloatingActionBar() {
     <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50">
       <div className="flex items-center gap-0.5 bg-neutral-800/95 rounded-lg shadow-lg border border-neutral-700/80 px-1.5 py-1">
         <NodeButton type="imageInput" label="Image" dataTutorial="image-button" />
+        <InputBoardButton />
         <NodeButton type="videoInput" label="Video" />
         <NodeButton type="prompt" label="Prompt" dataTutorial="prompt-button" />
         <GenerateComboButton />

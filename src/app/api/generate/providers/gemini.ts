@@ -6,7 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
-import { GenerateResponse, ModelType } from "@/types";
+import { GenerateResponse, GenerationTrace, ModelType } from "@/types";
 import { GenerationOutput } from "@/lib/providers/types";
 
 /**
@@ -30,7 +30,8 @@ export async function generateWithGemini(
   aspectRatio?: string,
   resolution?: string,
   useGoogleSearch?: boolean,
-  useImageSearch?: boolean
+  useImageSearch?: boolean,
+  generationTrace?: GenerationTrace,
 ): Promise<NextResponse<GenerateResponse>> {
   console.log(`[API:${requestId}] Gemini generation - Model: ${model}, Images: ${images?.length || 0}, Prompt: ${prompt?.length || 0} chars`);
 
@@ -123,6 +124,7 @@ export async function generateWithGemini(
       {
         success: false,
         error: "No response from AI model",
+        generationTrace,
       },
       { status: 500 }
     );
@@ -137,6 +139,7 @@ export async function generateWithGemini(
       {
         success: false,
         error: "No content in response",
+        generationTrace,
       },
       { status: 500 }
     );
@@ -153,7 +156,7 @@ export async function generateWithGemini(
 
       const dataUrl = `data:${mimeType};base64,${imgData}`;
 
-      const responsePayload = { success: true, image: dataUrl };
+      const responsePayload = { success: true, image: dataUrl, generationTrace };
       const responseSize = JSON.stringify(responsePayload).length;
       const responseSizeMB = (responseSize / (1024 * 1024)).toFixed(2);
 
@@ -175,6 +178,7 @@ export async function generateWithGemini(
         {
           success: false,
           error: `Model returned text instead of image: ${part.text.substring(0, 200)}`,
+          generationTrace,
         },
         { status: 500 }
       );
@@ -186,6 +190,7 @@ export async function generateWithGemini(
     {
       success: false,
       error: "No image in response",
+      generationTrace,
     },
     { status: 500 }
   );

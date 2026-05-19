@@ -76,6 +76,12 @@ const WaveSpeedIcon = () => (
   </svg>
 );
 
+const FlowIcon = () => (
+  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5v-13Zm3 1.25v10.5l8.5-5.25L7 6.75Z" />
+  </svg>
+);
+
 // Get the center of the React Flow pane in screen coordinates
 function getPaneCenter() {
   const pane = document.querySelector(".react-flow");
@@ -135,7 +141,7 @@ export function ModelSearchDialog({
     trackModelUsage,
   } = useWorkflowStore();
   // Use stable selector for API keys to prevent unnecessary re-fetches
-  const { replicateApiKey, falApiKey, kieApiKey, wavespeedApiKey } = useProviderApiKeys();
+  const { openaiApiKey, replicateApiKey, falApiKey, kieApiKey, wavespeedApiKey, flowEnabled } = useProviderApiKeys();
   const { screenToFlowPosition } = useReactFlow();
 
   // State
@@ -241,6 +247,10 @@ export function ModelSearchDialog({
       if (wavespeedApiKey) {
         headers["X-WaveSpeed-Key"] = wavespeedApiKey;
       }
+      if (openaiApiKey) {
+        headers["X-OpenAI-Key"] = openaiApiKey;
+        headers["X-OpenAI-API-Key"] = openaiApiKey;
+      }
 
       const response = await deduplicatedFetch(`/api/models?${params.toString()}`, {
         headers,
@@ -278,7 +288,7 @@ export function ModelSearchDialog({
         setIsLoading(false);
       }
     }
-  }, [debouncedSearch, providerFilter, capabilityFilter, replicateApiKey, falApiKey, kieApiKey, wavespeedApiKey]);
+  }, [debouncedSearch, providerFilter, capabilityFilter, openaiApiKey, replicateApiKey, falApiKey, kieApiKey, wavespeedApiKey]);
 
   // Fetch models when filters change
   useEffect(() => {
@@ -295,6 +305,7 @@ export function ModelSearchDialog({
       localStorage.removeItem(MODELS_CACHE_KEY);
       // Clear localStorage schema cache (keep in sync with ModelParameters.tsx)
       localStorage.removeItem("node-banana-schema-cache");
+      localStorage.removeItem("node-banana-schema-cache-v2");
       // Clear in-memory deduplicatedFetch cache
       clearFetchCache();
       // Re-fetch with cache bypass
@@ -402,6 +413,8 @@ export function ModelSearchDialog({
         return "bg-orange-500/20 text-orange-300";
       case "wavespeed":
         return "bg-purple-500/20 text-purple-300";
+      case "flow":
+        return "bg-cyan-500/20 text-cyan-300";
       default:
         return "bg-neutral-500/20 text-neutral-300";
     }
@@ -420,6 +433,8 @@ export function ModelSearchDialog({
         return "Kie.ai";
       case "wavespeed":
         return "WaveSpeed";
+      case "flow":
+        return "Google Flow";
       default:
         return provider;
     }
@@ -429,15 +444,17 @@ export function ModelSearchDialog({
   const availableProviders = useMemo(() => {
     const providers = new Set<ProviderType>(["gemini", "fal"]); // Always available
     // Client-side keys (from localStorage/provider settings)
+    if (openaiApiKey) providers.add("openai");
     if (replicateApiKey) providers.add("replicate");
     if (kieApiKey) providers.add("kie");
     if (wavespeedApiKey) providers.add("wavespeed");
+    if (flowEnabled) providers.add("flow");
     // Server-side keys (from env vars, reported by /api/models)
     for (const p of serverAvailableProviders) {
       providers.add(p as ProviderType);
     }
     return providers;
-  }, [replicateApiKey, kieApiKey, wavespeedApiKey, serverAvailableProviders]);
+  }, [openaiApiKey, replicateApiKey, kieApiKey, wavespeedApiKey, flowEnabled, serverAvailableProviders]);
 
   // Reset provider filter if current selection becomes unavailable
   useEffect(() => {
@@ -506,6 +523,8 @@ export function ModelSearchDialog({
         return `https://fal.ai/models/${model.id}`;
       case "wavespeed":
         return `https://wavespeed.ai`;
+      case "flow":
+        return "https://labs.google/fx/tools/flow";
       default:
         return null;
     }
@@ -706,6 +725,19 @@ export function ModelSearchDialog({
                   }`}
                 >
                   <WaveSpeedIcon />
+                </button>
+              )}
+              {availableProviders.has("flow") && (
+                <button
+                  onClick={() => setProviderFilter("flow")}
+                  title="Google Flow"
+                  className={`p-2 rounded transition-colors ${
+                    providerFilter === "flow"
+                      ? "bg-cyan-500/20 text-cyan-300"
+                      : "text-neutral-400 hover:text-cyan-300 hover:bg-neutral-700"
+                  }`}
+                >
+                  <FlowIcon />
                 </button>
               )}
             </div>

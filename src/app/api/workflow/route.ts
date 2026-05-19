@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs/promises";
-import * as path from "path";
 import { logger } from "@/utils/logger";
-import { validateWorkflowPath } from "@/utils/pathValidation";
+import { getWorkflowPathImplementation, validateWorkflowPath } from "@/utils/pathValidation";
 
 export const maxDuration = 300; // 5 minute timeout for large workflow files
 
@@ -48,6 +47,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const pathImpl = getWorkflowPathImplementation(directoryPath);
+    directoryPath = pathValidation.resolved;
 
     // Ensure project directory exists (supports saving into new subfolders)
     try {
@@ -94,8 +95,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Auto-create subfolders for inputs and generations
-    const inputsFolder = path.join(directoryPath, "inputs");
-    const generationsFolder = path.join(directoryPath, "generations");
+    const inputsFolder = pathImpl.join(directoryPath, "inputs");
+    const generationsFolder = pathImpl.join(directoryPath, "generations");
 
     try {
       await fs.mkdir(inputsFolder, { recursive: true });
@@ -111,7 +112,7 @@ export async function POST(request: NextRequest) {
 
     // Sanitize filename (remove special chars, ensure .json extension)
     const safeName = filename.replace(/[^a-zA-Z0-9-_]/g, "_");
-    const filePath = path.join(directoryPath, `${safeName}.json`);
+    const filePath = pathImpl.join(directoryPath, `${safeName}.json`);
 
     // Write workflow JSON
     const json = JSON.stringify(workflow, null, 2);
@@ -171,9 +172,11 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+  const pathImpl = getWorkflowPathImplementation(directoryPath);
+  const resolvedDirectoryPath = pathValidation.resolved;
 
   try {
-    const stats = await fs.stat(directoryPath);
+    const stats = await fs.stat(resolvedDirectoryPath);
     const isDirectory = stats.isDirectory();
 
     if (!isDirectory) {
@@ -186,14 +189,14 @@ export async function GET(request: NextRequest) {
 
     // If load=true, find and return a workflow JSON from the directory
     if (shouldLoad) {
-      const entries = await fs.readdir(directoryPath);
+      const entries = await fs.readdir(resolvedDirectoryPath);
       const jsonFiles = entries.filter(f => f.endsWith(".json"));
 
       // Gather candidates with mtime for deterministic selection (newest first)
       const candidates: { jsonFile: string; filePath: string; mtime: number }[] = [];
       for (const jsonFile of jsonFiles) {
         try {
-          const filePath = path.join(directoryPath, jsonFile);
+          const filePath = pathImpl.join(resolvedDirectoryPath, jsonFile);
           const stat = await fs.stat(filePath);
           candidates.push({ jsonFile, filePath, mtime: stat.mtimeMs });
         } catch {
@@ -212,7 +215,7 @@ export async function GET(request: NextRequest) {
             Array.isArray(parsed.nodes) &&
             Array.isArray(parsed.edges)
           ) {
-            const filename = path.basename(jsonFile, ".json");
+            const filename = pathImpl.basename(jsonFile, ".json");
             logger.info('file.load', 'Workflow loaded from directory', {
               directoryPath,
               filename: jsonFile,

@@ -1,5 +1,17 @@
 import * as path from "path";
 
+function isWindowsPath(inputPath: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(inputPath) || inputPath.startsWith("\\\\");
+}
+
+export function getWorkflowPathImplementation(inputPath: string): path.PlatformPath {
+  return isWindowsPath(inputPath) ? path.win32 : path.posix;
+}
+
+function hasTraversalSegment(inputPath: string): boolean {
+  return inputPath.split(/[\\/]+/).includes("..");
+}
+
 /**
  * Validates a workflow directory path to prevent path traversal attacks.
  * Ensures the path is absolute, doesn't contain traversal sequences,
@@ -10,8 +22,10 @@ export function validateWorkflowPath(inputPath: string): {
   resolved: string;
   error?: string;
 } {
+  const pathImpl = getWorkflowPathImplementation(inputPath);
+
   // Must be an absolute path
-  if (!path.isAbsolute(inputPath)) {
+  if (!pathImpl.isAbsolute(inputPath)) {
     return {
       valid: false,
       resolved: inputPath,
@@ -19,17 +33,18 @@ export function validateWorkflowPath(inputPath: string): {
     };
   }
 
-  // Resolve the path and ensure it equals the input (catches .. traversal)
-  const resolved = path.resolve(inputPath);
-  if (resolved !== inputPath) {
+  // Reject explicit traversal segments before normalizing.
+  if (hasTraversalSegment(inputPath)) {
     return {
       valid: false,
-      resolved,
+      resolved: pathImpl.resolve(inputPath),
       error: "Path contains traversal sequences",
     };
   }
 
-  // Block known dangerous system directories
+  const resolved = pathImpl.resolve(inputPath);
+
+  // Block known dangerous POSIX system directories.
   const dangerousPrefixes = [
     "/etc",
     "/usr",
@@ -42,13 +57,15 @@ export function validateWorkflowPath(inputPath: string): {
     "/Library",
   ];
 
-  for (const prefix of dangerousPrefixes) {
-    if (resolved.startsWith(prefix + "/") || resolved === prefix) {
-      return {
-        valid: false,
-        resolved,
-        error: `Access to ${prefix} is not allowed`,
-      };
+  if (pathImpl === path.posix) {
+    for (const prefix of dangerousPrefixes) {
+      if (resolved.startsWith(prefix + "/") || resolved === prefix) {
+        return {
+          valid: false,
+          resolved,
+          error: `Access to ${prefix} is not allowed`,
+        };
+      }
     }
   }
 

@@ -1,13 +1,13 @@
 /**
  * Unified Models API Endpoint
  *
- * Aggregates models from all configured providers (Replicate, fal.ai, Gemini, WaveSpeed).
+ * Aggregates models from all configured providers (OpenAI-compatible, Replicate, fal.ai, Gemini, WaveSpeed).
  * Uses in-memory caching to reduce external API calls.
  *
  * GET /api/models
  *
  * Query params:
- *   - provider: Optional, filter to specific provider ("replicate" | "fal" | "gemini" | "wavespeed")
+ *   - provider: Optional, filter to specific provider ("openai" | "replicate" | "fal" | "gemini" | "wavespeed")
  *   - search: Optional, search query
  *   - refresh: Optional, bypass cache if "true"
  *   - capabilities: Optional, filter by capabilities (comma-separated)
@@ -37,11 +37,23 @@ import {
   setCachedWaveSpeedSchemas,
   WaveSpeedApiSchema,
 } from "@/lib/providers/cache";
+import { FLOW_MODELS } from "@/lib/flow/modes";
 
 // API base URLs
 const REPLICATE_API_BASE = "https://api.replicate.com/v1";
 const FAL_API_BASE = "https://api.fal.ai/v1";
 const WAVESPEED_API_BASE = "https://api.wavespeed.ai/api/v3";
+
+const OPENAI_IMAGE_MODELS: ProviderModel[] = [
+  {
+    id: "gpt-image-2",
+    name: "GPT Image 2",
+    description: "OpenAI-compatible image generation and editing. Works with CCS CLIProxy when OPENAI_BASE_URL points at the local proxy.",
+    provider: "openai",
+    capabilities: ["text-to-image", "image-to-image"],
+    coverImage: undefined,
+  },
+];
 
 // Categories we care about for image/video/3D/audio generation (fal.ai)
 const RELEVANT_CATEGORIES = [
@@ -571,6 +583,9 @@ const GEMINI_VIDEO_MODELS: ProviderModel[] = [
   },
 ];
 
+// Google Flow models (local extension bridge using the user's Flow session)
+const FLOW_VIDEO_MODELS: ProviderModel[] = FLOW_MODELS;
+
 // WaveSpeed models are now fetched dynamically from https://api.wavespeed.ai/api/v3/models
 
 // ============ Replicate Types ============
@@ -1098,9 +1113,15 @@ export async function GET(
   const falKey = request.headers.get("X-Fal-Key") || process.env.FAL_API_KEY || null;
   const kieKey = request.headers.get("X-Kie-Key") || process.env.KIE_API_KEY || null;
   const wavespeedKey = request.headers.get("X-WaveSpeed-Key") || process.env.WAVESPEED_API_KEY || null;
+  const openaiKey =
+    request.headers.get("X-OpenAI-Key") ||
+    request.headers.get("X-OpenAI-API-Key") ||
+    process.env.OPENAI_API_KEY ||
+    null;
 
-  // Build list of all available providers (have keys from env or client headers)
-  const availableProviders: string[] = ["gemini"]; // Gemini always available
+  // Build list of all available providers (have keys from env/client headers, or local session support)
+  const availableProviders: string[] = ["gemini", "flow"]; // Gemini and Flow are locally available
+  if (openaiKey) availableProviders.push("openai");
   if (falKey) availableProviders.push("fal");
   if (replicateKey) availableProviders.push("replicate");
   if (kieKey) availableProviders.push("kie");
@@ -1110,11 +1131,28 @@ export async function GET(
   const providersToFetch: ProviderType[] = [];
   let includeGemini = false;
   let includeKie = false;
+  let includeOpenAI = false;
+  let includeFlow = false;
 
   if (providerFilter) {
     if (providerFilter === "gemini") {
       // Only Gemini requested - no external API calls needed
       includeGemini = true;
+    } else if (providerFilter === "flow") {
+      // Google Flow uses local browser sessions, no external API key needed
+      includeFlow = true;
+    } else if (providerFilter === "openai") {
+      if (openaiKey) {
+        includeOpenAI = true;
+      } else {
+        return NextResponse.json<ModelsErrorResponse>(
+          {
+            success: false,
+            error: "OpenAI API key required. Add OPENAI_API_KEY to .env.local or configure in Settings.",
+          },
+          { status: 400 }
+        );
+      }
     } else if (providerFilter === "kie") {
       // Only Kie requested - no external API calls needed (hardcoded models)
       if (kieKey) {
@@ -1151,6 +1189,8 @@ export async function GET(
   } else {
     // Include all providers that have keys configured
     includeGemini = true; // Gemini always available
+    includeFlow = true; // Flow is available as a local-session provider
+    includeOpenAI = openaiKey ? true : false;
     includeKie = kieKey ? true : false; // Kie only if API key is configured
     if (wavespeedKey) {
       providersToFetch.push("wavespeed"); // WaveSpeed if key is configured
@@ -1164,12 +1204,12 @@ export async function GET(
   }
 
   // Gemini and Kie are always available (with key for Kie), so we don't fail if no external providers
-  if (providersToFetch.length === 0 && !includeGemini && !includeKie) {
+  if (providersToFetch.length === 0 && !includeGemini && !includeKie && !includeOpenAI && !includeFlow) {
     return NextResponse.json<ModelsErrorResponse>(
       {
         success: false,
         error:
-          "No providers available. Add REPLICATE_API_KEY, FAL_API_KEY, KIE_API_KEY, or WAVESPEED_API_KEY to .env.local or configure in Settings.",
+          "No providers available. Add OPENAI_API_KEY, REPLICATE_API_KEY, FAL_API_KEY, KIE_API_KEY, or WAVESPEED_API_KEY to .env.local, configure Settings, or use Google Flow.",
       },
       { status: 400 }
     );
@@ -1197,6 +1237,21 @@ export async function GET(
     anyFromCache = true;
   }
 
+  // Add Flow models if included (hardcoded, no API call needed)
+  if (includeFlow) {
+    let flowModels = FLOW_VIDEO_MODELS;
+    if (searchQuery) {
+      flowModels = filterModelsBySearch(flowModels, searchQuery);
+    }
+    allModels.push(...flowModels);
+    providerResults["flow"] = {
+      success: true,
+      count: flowModels.length,
+      cached: true,
+    };
+    anyFromCache = true;
+  }
+
   // Add Kie models if included (hardcoded, no API call needed)
   if (includeKie) {
     // Filter by search query if provided
@@ -1209,6 +1264,20 @@ export async function GET(
       success: true,
       count: kieModels.length,
       cached: true, // Hardcoded models are effectively "cached"
+    };
+    anyFromCache = true;
+  }
+
+  if (includeOpenAI) {
+    let openAIModels = [...OPENAI_IMAGE_MODELS];
+    if (searchQuery) {
+      openAIModels = filterModelsBySearch(openAIModels, searchQuery);
+    }
+    allModels.push(...openAIModels);
+    providerResults["openai"] = {
+      success: true,
+      count: openAIModels.length,
+      cached: true,
     };
     anyFromCache = true;
   }

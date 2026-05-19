@@ -14,6 +14,7 @@ import { useInlineParameters } from "@/hooks/useInlineParameters";
 const LLM_PROVIDERS: { value: LLMProvider; label: string }[] = [
   { value: "google", label: "Google" },
   { value: "openai", label: "OpenAI" },
+  { value: "ccs", label: "CCS" },
   { value: "anthropic", label: "Anthropic" },
 ];
 
@@ -27,6 +28,21 @@ const LLM_MODELS: Record<LLMProvider, { value: LLMModelType; label: string }[]> 
   openai: [
     { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
     { value: "gpt-4.1-nano", label: "GPT-4.1 Nano" },
+  ],
+  ccs: [
+    { value: "gpt-5.5", label: "GPT-5.5" },
+    { value: "gpt-5.4", label: "GPT-5.4" },
+    { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+    { value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+    { value: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
+    { value: "gpt-5.2", label: "GPT-5.2" },
+    { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
+    { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+    { value: "gemini-3-pro-preview", label: "Gemini 3.0 Pro" },
+    { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+    { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+    { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
+    { value: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" },
   ],
   anthropic: [
     { value: "claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
@@ -64,6 +80,12 @@ const WaveSpeedIcon = () => (
   </svg>
 );
 
+const FlowIcon = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5v-13Zm3 1.25v10.5l8.5-5.25L7 6.75Z" />
+  </svg>
+);
+
 // Get provider icon component
 const getProviderIcon = (provider: ProviderType) => {
   switch (provider) {
@@ -75,10 +97,69 @@ const getProviderIcon = (provider: ProviderType) => {
       return <FalIcon />;
     case "wavespeed":
       return <WaveSpeedIcon />;
+    case "flow":
+      return <FlowIcon />;
     default:
       return null;
   }
 };
+
+type FlowAccountStatus = "connected" | "needs_login" | "credit_exhausted" | "generation_failed";
+
+interface FlowAccount {
+  id: string;
+  label: string;
+  email?: string | null;
+  profilePath: string;
+  active: boolean;
+  status: FlowAccountStatus;
+  lastError?: string | null;
+  browserSource?: "local" | "gpm" | null;
+  gpmProfileId?: string | null;
+  gpmProfileName?: string | null;
+  gpmBrowser?: string | null;
+  extensionInstanceId?: string | null;
+  priority?: number | null;
+  disabled?: boolean | null;
+  quota?: {
+    remainingCredits?: number | null;
+    paygateTier?: string | null;
+    checkedAt?: number | null;
+    lastError?: string | null;
+  } | null;
+}
+
+interface FlowBridgeSession {
+  id: string;
+  accountId: string | null;
+  extensionInstanceId: string | null;
+  connected: boolean;
+  flowKeyPresent: boolean;
+  tokenAgeMs: number | null;
+  bridgeUrl: string | null;
+  flowTabUrl: string | null;
+  pending: number;
+}
+
+interface FlowBridgeStatus {
+  attached: boolean;
+  connected: boolean;
+  flowKeyPresent: boolean;
+  tokenAgeMs: number | null;
+  expectedBridgeUrl: string | null;
+  extensionBridgeUrl: string | null;
+  remoteAddress: string | null;
+  pending: number;
+  lastError: string | null;
+  activeSessionId: string | null;
+  sessions: FlowBridgeSession[];
+}
+
+interface FlowStatusPeer {
+  origin: string;
+  port: number;
+  bridge: FlowBridgeStatus;
+}
 
 interface ProjectSetupModalProps {
   isOpen: boolean;
@@ -160,22 +241,33 @@ export function ProjectSetupModal({
   const [showApiKey, setShowApiKey] = useState<Record<ProviderType, boolean>>({
     gemini: false,
     openai: false,
+    ccs: false,
     anthropic: false,
     replicate: false,
     fal: false,
     kie: false,
     wavespeed: false,
+    flow: false,
   });
   const [overrideActive, setOverrideActive] = useState<Record<ProviderType, boolean>>({
     gemini: false,
     openai: false,
+    ccs: false,
     anthropic: false,
     replicate: false,
     fal: false,
     kie: false,
     wavespeed: false,
+    flow: false,
   });
   const [envStatus, setEnvStatus] = useState<EnvStatusResponse | null>(null);
+  const [flowAccounts, setFlowAccounts] = useState<FlowAccount[]>([]);
+  const [flowBridgeStatus, setFlowBridgeStatus] = useState<FlowBridgeStatus | null>(null);
+  const [flowBridgePeers, setFlowBridgePeers] = useState<FlowStatusPeer[]>([]);
+  const [isFlowBusy, setIsFlowBusy] = useState(false);
+  const [flowError, setFlowError] = useState<string | null>(null);
+  const [newFlowAccountEmail, setNewFlowAccountEmail] = useState("");
+  const [newFlowAccountProfile, setNewFlowAccountProfile] = useState("");
 
   // Node defaults tab state
   const [localNodeDefaults, setLocalNodeDefaults] = useState<NodeDefaultsConfig>({});
@@ -184,6 +276,134 @@ export function ProjectSetupModal({
 
   // Canvas tab state
   const [localCanvasSettings, setLocalCanvasSettings] = useState<CanvasNavigationSettings>(canvasNavigationSettings);
+
+  const fetchFlowAccounts = async () => {
+    const response = await fetch("/api/flow/accounts");
+    const result = await response.json();
+    if (result.success) {
+      setFlowAccounts(result.accounts || []);
+    }
+  };
+
+  const fetchFlowStatus = async () => {
+    const response = await fetch("/api/flow/status");
+    const result = await response.json();
+    if (result.success) {
+      setFlowBridgeStatus(result.bridge);
+      setFlowBridgePeers(result.peerServers || []);
+    }
+  };
+
+  const handleAddFlowAccount = async () => {
+    const email = newFlowAccountEmail.trim();
+    const profileName = newFlowAccountProfile.trim();
+    if (!email && !profileName) {
+      setFlowError("Add a Gmail address or GPM profile label first.");
+      return;
+    }
+
+    setIsFlowBusy(true);
+    setFlowError(null);
+    try {
+      const response = await fetch("/api/flow/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email || null,
+          label: email || profileName,
+          browserSource: "gpm",
+          gpmProfileName: profileName || null,
+          status: "needs_login",
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Failed to add Flow account");
+      }
+      setNewFlowAccountEmail("");
+      setNewFlowAccountProfile("");
+      await fetchFlowAccounts();
+    } catch (err) {
+      setFlowError(err instanceof Error ? err.message : "Failed to add Flow account");
+    } finally {
+      setIsFlowBusy(false);
+    }
+  };
+
+  const handleActivateFlowAccount = async (accountId: string) => {
+    setIsFlowBusy(true);
+    setFlowError(null);
+    try {
+      const response = await fetch(`/api/flow/accounts/${encodeURIComponent(accountId)}/activate`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Failed to activate Flow account");
+      }
+      await fetchFlowAccounts();
+    } catch (err) {
+      setFlowError(err instanceof Error ? err.message : "Failed to activate Flow account");
+    } finally {
+      setIsFlowBusy(false);
+    }
+  };
+
+  const handleDeleteFlowAccount = async (accountId: string) => {
+    setIsFlowBusy(true);
+    setFlowError(null);
+    try {
+      const response = await fetch(`/api/flow/accounts/${encodeURIComponent(accountId)}`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Failed to remove Flow account");
+      }
+      await fetchFlowAccounts();
+    } catch (err) {
+      setFlowError(err instanceof Error ? err.message : "Failed to remove Flow account");
+    } finally {
+      setIsFlowBusy(false);
+    }
+  };
+
+  const handlePairFlowAccount = async (accountId: string, session: FlowBridgeSession) => {
+    setIsFlowBusy(true);
+    setFlowError(null);
+    try {
+      const response = await fetch(`/api/flow/accounts/${encodeURIComponent(accountId)}/pair-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: session.id,
+          extensionInstanceId: session.extensionInstanceId,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Failed to pair Flow session");
+      }
+      await Promise.all([fetchFlowAccounts(), fetchFlowStatus()]);
+    } catch (err) {
+      setFlowError(err instanceof Error ? err.message : "Failed to pair Flow session");
+    } finally {
+      setIsFlowBusy(false);
+    }
+  };
+
+  const handleCheckFlowQuota = async (accountId: string) => {
+    setIsFlowBusy(true);
+    setFlowError(null);
+    try {
+      const response = await fetch(`/api/flow/accounts/${encodeURIComponent(accountId)}/check-quota`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Failed to check Flow quota");
+      }
+      await fetchFlowAccounts();
+    } catch (err) {
+      setFlowError(err instanceof Error ? err.message : "Failed to check Flow quota");
+    } finally {
+      setIsFlowBusy(false);
+    }
+  };
 
   // Pre-fill when opening in settings mode
   useEffect(() => {
@@ -205,18 +425,21 @@ export function ProjectSetupModal({
 
       // Sync local providers state
       setLocalProviders(providerSettings);
-      setShowApiKey({ gemini: false, openai: false, anthropic: false, replicate: false, fal: false, kie: false, wavespeed: false });
+      setShowApiKey({ gemini: false, openai: false, ccs: false, anthropic: false, replicate: false, fal: false, kie: false, wavespeed: false, flow: false });
       // Initialize override as active if user already has a key set
       setOverrideActive({
         gemini: !!providerSettings.providers.gemini?.apiKey,
         openai: !!providerSettings.providers.openai?.apiKey,
+        ccs: false,
         anthropic: !!providerSettings.providers.anthropic?.apiKey,
         replicate: !!providerSettings.providers.replicate?.apiKey,
         fal: !!providerSettings.providers.fal?.apiKey,
         kie: !!providerSettings.providers.kie?.apiKey,
         wavespeed: !!providerSettings.providers.wavespeed?.apiKey,
+        flow: false,
       });
       setError(null);
+      setFlowError(null);
 
       // Load node defaults
       setLocalNodeDefaults(loadNodeDefaults());
@@ -231,6 +454,9 @@ export function ProjectSetupModal({
         .then((res) => res.json())
         .then((data: EnvStatusResponse) => setEnvStatus(data))
         .catch(() => setEnvStatus(null));
+
+      fetchFlowAccounts().catch(() => {});
+      fetchFlowStatus().catch(() => {});
     }
   }, [isOpen, mode, workflowName, saveDirectoryPath, useExternalImageStorage, providerSettings, canvasNavigationSettings]);
 
@@ -314,7 +540,7 @@ export function ProjectSetupModal({
 
   const handleSaveProviders = () => {
     // Save each provider's settings
-    const providerIds: ProviderType[] = ["gemini", "openai", "anthropic", "replicate", "fal", "kie", "wavespeed"];
+    const providerIds: ProviderType[] = ["gemini", "openai", "anthropic", "replicate", "fal", "kie", "wavespeed", "flow"];
     for (const providerId of providerIds) {
       const local = localProviders.providers[providerId];
       const current = providerSettings.providers[providerId];
@@ -379,6 +605,49 @@ export function ProjectSetupModal({
       },
     }));
   };
+
+  const getFlowStatusLabel = (status: FlowAccountStatus) => {
+    switch (status) {
+      case "connected":
+        return "Connected";
+      case "needs_login":
+        return "Needs login";
+      case "credit_exhausted":
+        return "Out of credits";
+      case "generation_failed":
+        return "Generation failed";
+      default:
+        return status;
+    }
+  };
+
+  const getFlowStatusClass = (status: FlowAccountStatus) => {
+    switch (status) {
+      case "connected":
+        return "bg-green-500/15 text-green-300";
+      case "needs_login":
+        return "bg-yellow-500/15 text-yellow-300";
+      case "credit_exhausted":
+        return "bg-red-500/15 text-red-300";
+      case "generation_failed":
+        return "bg-orange-500/15 text-orange-300";
+      default:
+        return "bg-neutral-700 text-neutral-300";
+    }
+  };
+
+  const connectedFlowBridgePeer = flowBridgePeers.find((peer) => peer.bridge.connected);
+  const flowSessions = flowBridgeStatus?.sessions || [];
+  const unpairedFlowSessions = flowSessions.filter(
+    (session) =>
+      session.connected &&
+      !flowAccounts.some((account) => account.extensionInstanceId && account.extensionInstanceId === session.extensionInstanceId)
+  );
+  const flowBridgeUrl =
+    flowBridgeStatus?.extensionBridgeUrl ||
+    flowBridgeStatus?.expectedBridgeUrl ||
+    connectedFlowBridgePeer?.bridge.extensionBridgeUrl ||
+    null;
 
   if (!isOpen) return null;
 
@@ -860,8 +1129,238 @@ export function ProjectSetupModal({
               </div>
             </div>
 
+            {/* Google Flow Provider */}
+            <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-700">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <FlowIcon />
+                  <div>
+                    <span className="text-sm font-medium text-neutral-100">Google Flow</span>
+                    <p className="text-xs text-neutral-400">Extension sessions with Gmail fallback routing</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={localProviders.providers.flow?.enabled ?? true}
+                  onClick={() =>
+                    updateLocalProvider("flow", {
+                      enabled: !(localProviders.providers.flow?.enabled ?? true),
+                    })
+                  }
+                  className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
+                    (localProviders.providers.flow?.enabled ?? true) ? "bg-blue-500" : "bg-neutral-600"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                      (localProviders.providers.flow?.enabled ?? true) ? "translate-x-[18px]" : "translate-x-[3px]"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                <div className="rounded-md border border-neutral-700 bg-neutral-800/60 px-2.5 py-2">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-neutral-400">Extension bridge</span>
+                    <span className={flowBridgeStatus?.connected ? "text-emerald-400" : "text-amber-400"}>
+                      {flowBridgeStatus?.connected ? "Connected" : "Offline"}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+                    <span className="text-neutral-400">Flow token</span>
+                    <span className={flowBridgeStatus?.flowKeyPresent ? "text-emerald-400" : "text-amber-400"}>
+                      {flowBridgeStatus?.flowKeyPresent ? "Captured" : "Open Flow tab"}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-start justify-between gap-2 text-xs">
+                    <span className="shrink-0 text-neutral-400">Bridge URL</span>
+                    <span className="break-all text-right text-neutral-300">
+                      {flowBridgeUrl || "-"}
+                    </span>
+                  </div>
+                  {connectedFlowBridgePeer && !flowBridgeStatus?.connected && (
+                    <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-100">
+                      Extension is connected on {connectedFlowBridgePeer.origin}. Open that Banana URL or stop the duplicate server.
+                    </div>
+                  )}
+                  {flowBridgeStatus && !flowBridgeStatus.attached && !connectedFlowBridgePeer && (
+                    <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-100">
+                      This server has no /flow-bridge. Start Banana with npm run dev instead of running Next directly.
+                    </div>
+                  )}
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.open("/flowboard", "_blank");
+                        fetchFlowStatus().catch(() => {});
+                      }}
+                      className="rounded bg-neutral-700 px-2 py-1 text-xs text-neutral-100 hover:bg-neutral-600"
+                    >
+                      Flowboard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.open("https://labs.google/fx/tools/flow", "_blank");
+                        fetchFlowStatus().catch(() => {});
+                      }}
+                      className="rounded bg-neutral-700 px-2 py-1 text-xs text-neutral-100 hover:bg-neutral-600"
+                    >
+                      Open Flow
+                    </button>
+                  </div>
+                  {flowSessions.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      <div className="text-[10px] uppercase tracking-wide text-neutral-500">Bridge sessions</div>
+                      {flowSessions.map((session) => (
+                        <div
+                          key={session.id}
+                          className="rounded border border-neutral-700 bg-neutral-900/50 px-2 py-1 text-[10px] text-neutral-300"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate">
+                              {session.extensionInstanceId ? session.extensionInstanceId.slice(0, 8) : session.id.slice(0, 8)}
+                            </span>
+                            <span className={session.connected && session.flowKeyPresent ? "text-emerald-400" : "text-amber-400"}>
+                              {session.connected && session.flowKeyPresent ? "ready" : session.connected ? "no token" : "offline"}
+                            </span>
+                          </div>
+                          {session.flowTabUrl && (
+                            <div className="mt-0.5 truncate text-neutral-500" title={session.flowTabUrl}>
+                              {session.flowTabUrl}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-xs text-neutral-400">
+                  Open the target GPM profile yourself, load the Banana Flow extension, open Google Flow, then pair the detected extension session to this Gmail account.
+                </p>
+
+                {flowAccounts.length === 0 ? (
+                  <p className="text-xs text-neutral-500">No Flow Gmail accounts configured yet.</p>
+                ) : (
+                  flowAccounts.map((account) => (
+                    <div
+                      key={account.id}
+                      className="rounded-md border border-neutral-700 bg-neutral-800/60 px-2.5 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-xs font-medium text-neutral-100">
+                              {account.email || account.label}
+                            </span>
+                            {account.active && (
+                              <span className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] text-blue-300">
+                                Active
+                              </span>
+                            )}
+                            <span className={`rounded px-1.5 py-0.5 text-[10px] ${getFlowStatusClass(account.status)}`}>
+                              {getFlowStatusLabel(account.status)}
+                            </span>
+                          </div>
+                          {account.lastError && (
+                            <p className="mt-1 truncate text-[10px] text-neutral-500" title={account.lastError}>
+                              {account.lastError}
+                            </p>
+                          )}
+                          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-neutral-500">
+                            {account.gpmProfileName || account.gpmProfileId ? (
+                              <span>GPM: {account.gpmProfileName || account.gpmProfileId}</span>
+                            ) : null}
+                            <span>Priority: {account.priority ?? "-"}</span>
+                            <span>
+                              Quota: {
+                                typeof account.quota?.remainingCredits === "number"
+                                  ? account.quota.remainingCredits
+                                  : "Unknown"
+                              }
+                            </span>
+                            {account.quota?.paygateTier && <span>{account.quota.paygateTier}</span>}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={isFlowBusy}
+                            onClick={() => handleCheckFlowQuota(account.id)}
+                            className="px-2 py-1 text-xs text-neutral-400 hover:text-neutral-200 disabled:opacity-50"
+                          >
+                            Quota
+                          </button>
+                          {unpairedFlowSessions[0] && (
+                            <button
+                              type="button"
+                              disabled={isFlowBusy}
+                              onClick={() => handlePairFlowAccount(account.id, unpairedFlowSessions[0])}
+                              className="px-2 py-1 text-xs text-neutral-400 hover:text-neutral-200 disabled:opacity-50"
+                            >
+                              Pair
+                            </button>
+                          )}
+                          {!account.active && (
+                            <button
+                              type="button"
+                              disabled={isFlowBusy}
+                              onClick={() => handleActivateFlowAccount(account.id)}
+                              className="px-2 py-1 text-xs text-neutral-400 hover:text-neutral-200 disabled:opacity-50"
+                            >
+                              Use
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={isFlowBusy}
+                            onClick={() => handleDeleteFlowAccount(account.id)}
+                            className="px-2 py-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                <div className="rounded-md border border-neutral-700 bg-neutral-800/60 p-2.5">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input
+                      type="email"
+                      value={newFlowAccountEmail}
+                      onChange={(event) => setNewFlowAccountEmail(event.target.value)}
+                      placeholder="Gmail account"
+                      className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={newFlowAccountProfile}
+                      onChange={(event) => setNewFlowAccountProfile(event.target.value)}
+                      placeholder="GPM profile label"
+                      className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-none"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isFlowBusy}
+                    onClick={handleAddFlowAccount}
+                    className="mt-2 w-full rounded-md bg-neutral-800 px-3 py-2 text-xs text-neutral-200 transition-colors hover:bg-neutral-700 disabled:opacity-50"
+                  >
+                    {isFlowBusy ? "Saving Flow account..." : "Add Flow account"}
+                  </button>
+                </div>
+                {flowError && <p className="text-xs text-red-400">{flowError}</p>}
+              </div>
+            </div>
+
             <p className="text-xs text-neutral-400 mt-2">
-              Add API keys via <code className="px-1 py-0.5 bg-neutral-800 rounded">.env.local</code> for better security. Keys added here override .env and are stored in your browser.
+              Add API keys via <code className="px-1 py-0.5 bg-neutral-800 rounded">.env.local</code> for better security. Keys added here override .env and are stored in your browser. Google Flow uses the local Banana Flow extension bridge and your active Google Flow browser session.
             </p>
           </div>
         )}

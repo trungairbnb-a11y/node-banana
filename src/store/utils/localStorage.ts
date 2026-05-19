@@ -22,6 +22,7 @@ export const CANVAS_NAVIGATION_KEY = "node-banana-canvas-navigation";
 export const LAST_PROJECT_BASE_DIR_KEY = "node-banana-last-project-dir";
 export const WORKFLOWS_DIRECTORY_KEY = "node-banana-workflows-directory";
 export const FTUX_COMPLETED_KEY = "node-banana-ftux-completed";
+export const FLOWBOARD_RESULT_KEY = "node-banana-flowboard-result";
 
 // Maximum recent models to store (show 4 in UI, keep 8 for persistence)
 export const MAX_RECENT_MODELS = 8;
@@ -48,11 +49,13 @@ export const defaultProviderSettings: ProviderSettings = {
   providers: {
     gemini: { id: "gemini", name: "Google Gemini", enabled: true, apiKey: null, apiKeyEnvVar: "GEMINI_API_KEY" },
     openai: { id: "openai", name: "OpenAI", enabled: true, apiKey: null, apiKeyEnvVar: "OPENAI_API_KEY" },
+    ccs: { id: "ccs", name: "CCS", enabled: true, apiKey: null },
     anthropic: { id: "anthropic", name: "Anthropic", enabled: true, apiKey: null, apiKeyEnvVar: "ANTHROPIC_API_KEY" },
     replicate: { id: "replicate", name: "Replicate", enabled: false, apiKey: null, apiKeyEnvVar: "REPLICATE_API_KEY" },
     fal: { id: "fal", name: "fal.ai", enabled: false, apiKey: null, apiKeyEnvVar: "FAL_API_KEY" },
     kie: { id: "kie", name: "Kie.ai", enabled: false, apiKey: null, apiKeyEnvVar: "KIE_API_KEY" },
     wavespeed: { id: "wavespeed", name: "WaveSpeed", enabled: false, apiKey: null, apiKeyEnvVar: "WAVESPEED_API_KEY" },
+    flow: { id: "flow", name: "Google Flow", enabled: true, apiKey: null },
   }
 };
 

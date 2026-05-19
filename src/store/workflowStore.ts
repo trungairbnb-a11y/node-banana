@@ -58,7 +58,7 @@ import {
   loadConcurrencySetting,
   saveConcurrencySetting,
   groupNodesByLevel,
-  chunk,
+  chunkWorkflowExecutionNodes,
   clearNodeImageRefs,
   findLoopSubgraph,
   copyLoopOutput,
@@ -228,6 +228,7 @@ interface WorkflowStore {
 
   // Node operations
   addNode: (type: NodeType, position: XYPosition, initialData?: Partial<WorkflowNodeData>) => string;
+  createImageInputBoard: (position: XYPosition) => { groupId: string; nodeIds: string[] };
   updateNodeData: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
   removeNode: (nodeId: string) => void;
   onNodesChange: (changes: NodeChange<WorkflowNode>[]) => void;
@@ -701,6 +702,82 @@ const workflowStoreImpl: StateCreator<WorkflowStore> = (set, get) => ({
     get().incrementManualChangeCount();
 
     return id;
+  },
+
+  createImageInputBoard: (position: XYPosition) => {
+    const imageBoard = {
+      padding: 18,
+      gap: 8,
+      leftWidth: 220,
+      leftHeight: 238,
+      rightWidth: 360,
+      rightHeight: 484,
+    };
+    const width = imageBoard.padding * 2 + imageBoard.leftWidth + imageBoard.gap + imageBoard.rightWidth;
+    const height = imageBoard.padding * 2 + imageBoard.rightHeight;
+    const groupId = `group-${++groupIdCounter}`;
+    const nodeIds = [
+      `imageInput-${++nodeIdCounter}`,
+      `imageInput-${++nodeIdCounter}`,
+      `imageInput-${++nodeIdCounter}`,
+    ];
+
+    const childSpecs = [
+      {
+        id: nodeIds[0],
+        position: {
+          x: position.x + imageBoard.padding,
+          y: position.y + imageBoard.padding,
+        },
+        width: imageBoard.leftWidth,
+        height: imageBoard.leftHeight,
+      },
+      {
+        id: nodeIds[1],
+        position: {
+          x: position.x + imageBoard.padding,
+          y: position.y + imageBoard.padding + imageBoard.leftHeight + imageBoard.gap,
+        },
+        width: imageBoard.leftWidth,
+        height: imageBoard.leftHeight,
+      },
+      {
+        id: nodeIds[2],
+        position: {
+          x: position.x + imageBoard.padding + imageBoard.leftWidth + imageBoard.gap,
+          y: position.y + imageBoard.padding,
+        },
+        width: imageBoard.rightWidth,
+        height: imageBoard.rightHeight,
+      },
+    ];
+
+    const boardNodes: WorkflowNode[] = childSpecs.map((spec) => ({
+      id: spec.id,
+      type: "imageInput",
+      position: spec.position,
+      data: createDefaultNodeData("imageInput"),
+      style: { width: spec.width, height: spec.height },
+      groupId,
+    }));
+
+    const group: NodeGroup = {
+      id: groupId,
+      name: "Inputs",
+      color: "green",
+      position,
+      size: { width, height },
+    };
+
+    pushUndoCheckpoint(get, set);
+    set((state) => ({
+      nodes: [...state.nodes, ...boardNodes],
+      groups: { ...state.groups, [groupId]: group },
+      hasUnsavedChanges: true,
+    }));
+    get().incrementManualChangeCount();
+
+    return { groupId, nodeIds };
   },
 
   updateNodeData: (nodeId: string, data: Partial<WorkflowNodeData>) => {
@@ -1180,35 +1257,52 @@ const workflowStoreImpl: StateCreator<WorkflowStore> = (set, get) => ({
     return validateWorkflowPure(nodes, edges);
   },
 
-  _buildExecutionContext: (node: WorkflowNode, signal?: AbortSignal): NodeExecutionContext => ({
-    node,
-    getConnectedInputs: get().getConnectedInputs,
-    updateNodeData: get().updateNodeData,
-    getFreshNode: (id: string) => get().nodes.find((n) => n.id === id),
-    getEdges: () => get().edges,
-    getNodes: () => get().nodes,
-    signal,
-    providerSettings: get().providerSettings,
-    addIncurredCost: (cost: number) => get().addIncurredCost(cost),
-    addToGlobalHistory: (item) => get().addToGlobalHistory(item),
-    generationsPath: get().generationsPath,
-    saveDirectoryPath: get().saveDirectoryPath,
-    trackSaveGeneration: (key: string, promise: Promise<void>) => {
-      pendingImageSyncs.set(key, promise);
-      promise.finally(() => pendingImageSyncs.delete(key));
-    },
-    appendOutputGalleryImage: (targetId: string, image: string) => {
-      set((state) => ({
-        nodes: state.nodes.map((n) =>
-          n.id === targetId && n.type === "outputGallery"
-            ? { ...n, data: { ...n.data, images: [image, ...((n.data as OutputGalleryNodeData).images || [])] } as WorkflowNodeData }
-            : n
-        ) as WorkflowNode[],
+  _buildExecutionContext: (node: WorkflowNode, signal?: AbortSignal): NodeExecutionContext => {
+    let workflowId = get().workflowId;
+    const workflowName = get().workflowName || "Untitled Workflow";
+
+    if (!workflowId) {
+      workflowId = generateWorkflowId();
+      set({
+        workflowId,
+        workflowName,
         hasUnsavedChanges: true,
-      }));
-    },
-    get: get as () => unknown,
-  }),
+      });
+    }
+
+    return {
+      node,
+      getConnectedInputs: get().getConnectedInputs,
+      updateNodeData: get().updateNodeData,
+      getFreshNode: (id: string) => get().nodes.find((n) => n.id === id),
+      getEdges: () => get().edges,
+      getNodes: () => get().nodes,
+      signal,
+      maxConcurrentCalls: get().maxConcurrentCalls,
+      providerSettings: get().providerSettings,
+      workflowId,
+      workflowName,
+      addIncurredCost: (cost: number) => get().addIncurredCost(cost),
+      addToGlobalHistory: (item) => get().addToGlobalHistory(item),
+      generationsPath: get().generationsPath,
+      saveDirectoryPath: get().saveDirectoryPath,
+      trackSaveGeneration: (key: string, promise: Promise<void>) => {
+        pendingImageSyncs.set(key, promise);
+        promise.finally(() => pendingImageSyncs.delete(key));
+      },
+      appendOutputGalleryImage: (targetId: string, image: string) => {
+        set((state) => ({
+          nodes: state.nodes.map((n) =>
+            n.id === targetId && n.type === "outputGallery"
+              ? { ...n, data: { ...n.data, images: [image, ...((n.data as OutputGalleryNodeData).images || [])] } as WorkflowNodeData }
+              : n
+          ) as WorkflowNode[],
+          hasUnsavedChanges: true,
+        }));
+      },
+      get: get as () => unknown,
+    };
+  },
 
   executeWorkflow: async (startFromNodeId?: string) => {
     const { nodes, edges, groups, isRunning, maxConcurrentCalls } = get();
@@ -1439,7 +1533,7 @@ const workflowStoreImpl: StateCreator<WorkflowStore> = (set, get) => ({
 
         if (levelNodes.length === 0) continue;
 
-        const batches = chunk(levelNodes, maxConcurrentCalls);
+        const batches = chunkWorkflowExecutionNodes(levelNodes, maxConcurrentCalls);
 
         for (const batch of batches) {
           if (abortController.signal.aborted || !get().isRunning) break;
@@ -1996,7 +2090,7 @@ const workflowStoreImpl: StateCreator<WorkflowStore> = (set, get) => ({
 
         if (levelNodes.length === 0) continue;
 
-        const batches = chunk(levelNodes, maxConcurrentCalls);
+        const batches = chunkWorkflowExecutionNodes(levelNodes, maxConcurrentCalls);
 
         for (const batch of batches) {
           if (abortController.signal.aborted || !get().isRunning) break;
@@ -2854,11 +2948,14 @@ export function useProviderApiKeys() {
   return useWorkflowStore(
     useShallow((state) => ({
       geminiApiKey: state.providerSettings.providers.gemini?.apiKey ?? null,
+      openaiApiKey: state.providerSettings.providers.openai?.apiKey ?? null,
       replicateApiKey: state.providerSettings.providers.replicate?.apiKey ?? null,
       falApiKey: state.providerSettings.providers.fal?.apiKey ?? null,
       kieApiKey: state.providerSettings.providers.kie?.apiKey ?? null,
       wavespeedApiKey: state.providerSettings.providers.wavespeed?.apiKey ?? null,
+      flowEnabled: state.providerSettings.providers.flow?.enabled ?? true,
       // Provider enabled states (for conditional UI)
+      openaiEnabled: state.providerSettings.providers.openai?.enabled ?? false,
       replicateEnabled: state.providerSettings.providers.replicate?.enabled ?? false,
       kieEnabled: state.providerSettings.providers.kie?.enabled ?? false,
     }))

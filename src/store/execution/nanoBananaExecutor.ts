@@ -14,10 +14,18 @@ import { buildGenerateHeaders } from "@/store/utils/buildApiHeaders";
 import { pollGenerateTask } from "./pollTaskCompletion";
 import { runWithFallback } from "./runWithFallback";
 import type { NodeExecutionContext } from "./types";
+import { buildGenerationTraceContext } from "./generationTraceClient";
+import { logger } from "@/utils/logger";
 
 export interface NanoBananaOptions {
   /** When true, falls back to stored inputImages/inputPrompt if no connections provide them. */
   useStoredFallback?: boolean;
+  /** Batch execution keeps prior successful previews visible while an item falls back. */
+  preserveOutputOnFallback?: boolean;
+}
+
+function createTempImageId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export async function executeNanoBanana(
@@ -33,6 +41,7 @@ export async function executeNanoBanana(
     getNodes,
     signal,
     providerSettings,
+    workflowId,
     addIncurredCost,
     addToGlobalHistory,
     generationsPath,
@@ -40,9 +49,10 @@ export async function executeNanoBanana(
     appendOutputGalleryImage,
   } = ctx;
 
-  const { useStoredFallback = false } = options;
+  const { useStoredFallback = false, preserveOutputOnFallback = false } = options;
 
-  const { images: connectedImages, text: connectedText, dynamicInputs } = getConnectedInputs(node.id);
+  const connectedInputs = getConnectedInputs(node.id);
+  const { images: connectedImages, text: connectedText, dynamicInputs } = connectedInputs;
 
   // Get fresh node data from store
   const freshNode = getFreshNode(node.id);
@@ -101,6 +111,16 @@ export async function executeNanoBanana(
     // to prefer dynamicInputs.prompt over the authoritative top-level value.
     const sanitizedDynamicInputs = { ...dynamicInputs };
     delete sanitizedDynamicInputs.prompt;
+    const traceContext = buildGenerationTraceContext({
+      sessionId: logger.getSessionId(),
+      nodeId: node.id,
+      nodeType: node.type,
+      workflowId,
+      connectedInputs,
+      nodes: getNodes(),
+      edges: getEdges(),
+      fallbackAttempt: modelToUse.modelId === nodeData.fallbackModel?.modelId ? "fallback" : "primary",
+    });
 
     const requestPayload = {
       images,
@@ -113,6 +133,7 @@ export async function executeNanoBanana(
       selectedModel: modelToUse,
       parameters: parametersOverride ?? nodeData.parameters,
       dynamicInputs: sanitizedDynamicInputs,
+      traceContext,
     };
 
     // Final guard: assert that prompt is a string before sending to API
@@ -149,6 +170,14 @@ export async function executeNanoBanana(
       }
 
       let result = await response.json();
+      const submitTrace = result.generationTrace;
+      if (submitTrace?.traceId) {
+        logger.info("node.execution", "Generation trace captured", {
+          nodeId: node.id,
+          traceId: submitTrace.traceId,
+          logPath: submitTrace.logPath,
+        });
+      }
 
       // Handle polling response (long-running Kie tasks)
       if (result.polling) {
@@ -161,11 +190,15 @@ export async function executeNanoBanana(
           headers,
           signal,
         });
+        if (!result.generationTrace && submitTrace) {
+          result = { ...result, generationTrace: submitTrace };
+        }
 
         if (!result.success) {
           updateNodeData(node.id, {
             status: "error",
             error: result.error || "Generation failed",
+            __latestGenerationTrace: result.generationTrace,
           });
           throw new Error(result.error || "Generation failed");
         }
@@ -173,7 +206,7 @@ export async function executeNanoBanana(
 
       if (result.success && result.image) {
         const timestamp = Date.now();
-        const imageId = `${timestamp}`;
+        const imageId = createTempImageId();
 
         // Save to global history
         addToGlobalHistory({
@@ -192,7 +225,9 @@ export async function executeNanoBanana(
           aspectRatio: nodeData.aspectRatio,
           model: nodeData.model,
         };
-        const updatedHistory = [newHistoryItem, ...(nodeData.imageHistory || [])].slice(0, 50);
+        const latestNode = getFreshNode(node.id);
+        const latestData = (latestNode?.data || nodeData) as NanoBananaNodeData;
+        const updatedHistory = [newHistoryItem, ...(latestData.imageHistory || [])].slice(0, 50);
 
         updateNodeData(node.id, {
           outputImage: result.image,
@@ -200,8 +235,8 @@ export async function executeNanoBanana(
           error: null,
           imageHistory: updatedHistory,
           selectedHistoryIndex: 0,
+          __latestGenerationTrace: result.generationTrace,
         });
-
         // Push new image to connected downstream outputGallery nodes (atomic append)
         const edges = getEdges();
         const nodes = getNodes();
@@ -259,6 +294,7 @@ export async function executeNanoBanana(
         updateNodeData(node.id, {
           status: "error",
           error: result.error || "Generation failed",
+          __latestGenerationTrace: result.generationTrace,
         });
         throw new Error(result.error || "Generation failed");
       }
@@ -299,6 +335,6 @@ export async function executeNanoBanana(
     fallbackParameters: nodeData.fallbackParameters,
     updateNodeData,
     runOnce,
-    clearOutput: { outputImage: null },
+    clearOutput: preserveOutputOnFallback ? undefined : { outputImage: null },
   });
 }

@@ -7,10 +7,12 @@
 
 import type { AspectRatio, Resolution, ModelType } from "./models";
 import type { LLMProvider, LLMModelType } from "./providers";
+import type { GenerationTrace, GenerationTraceRequestContext } from "./generationTrace";
 
 // API Request/Response types for Image Generation
 export interface GenerateRequest {
   images: string[]; // Now supports multiple images
+  videos?: string[]; // Optional connected video inputs for video-capable providers
   prompt: string;
   aspectRatio?: AspectRatio;
   resolution?: Resolution; // Only for Nano Banana Pro
@@ -18,6 +20,16 @@ export interface GenerateRequest {
   useGoogleSearch?: boolean; // Only for Nano Banana Pro and Nano Banana 2
   useImageSearch?: boolean; // Only for Nano Banana 2
   mediaType?: "image" | "video" | "3d" | "audio"; // Indicates expected output type for provider routing
+  workflowId?: string | null; // Used by local browser providers such as Google Flow
+  workflowName?: string | null;
+  mediaRefs?: {
+    startImage?: string;
+    endImage?: string;
+    referenceImages?: string[];
+    extraRefs?: string[];
+    video?: string;
+  };
+  traceContext?: GenerationTraceRequestContext;
 }
 
 export interface GenerateResponse {
@@ -33,9 +45,10 @@ export interface GenerateResponse {
   // Client-side polling fields (for long-running Kie tasks)
   polling?: boolean; // true = task submitted, poll for completion
   taskId?: string; // Kie task ID to poll
-  pollProvider?: string; // 'kie' — tells poll endpoint which provider
+  pollProvider?: string; // e.g. 'kie' or 'flow' - tells poll endpoint which provider
   pollModelId?: string; // model ID for result handling
   pollModelName?: string; // display name for error messages
+  generationTrace?: GenerationTrace;
   pollMediaType?: string; // 'video' | 'image' | 'audio' — for result handling
 }
 

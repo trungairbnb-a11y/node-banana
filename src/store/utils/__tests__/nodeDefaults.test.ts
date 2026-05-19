@@ -272,10 +272,14 @@ describe("nodeDefaults utilities", () => {
       });
     });
 
-    it("returns undefined selectedModel for generateVideo when not set", () => {
+    it("uses Flow Reference Video as the generateVideo fallback when not set", () => {
       const data = createDefaultNodeData("generateVideo");
 
-      expect((data as any).selectedModel).toBeUndefined();
+      expect((data as any).selectedModel).toEqual({
+        provider: "flow",
+        modelId: "flow-veo-3.1/reference-video",
+        displayName: "Flow Reference Video",
+      });
     });
 
     it("uses node defaults for llmGenerate when set", () => {

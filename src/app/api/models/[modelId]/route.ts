@@ -4,7 +4,7 @@
  * Fetches parameter schema for a specific model from its provider.
  * Returns simplified parameter list for UI rendering.
  *
- * GET /api/models/:modelId?provider=replicate|fal|wavespeed
+ * GET /api/models/:modelId?provider=openai|replicate|fal|wavespeed
  *
  * Headers:
  *   - X-Replicate-Key: Required for Replicate models
@@ -30,6 +30,7 @@ import {
   setCachedWaveSpeedSchema,
   WaveSpeedApiSchema,
 } from "@/lib/providers/cache";
+import { getFlowSchemaForModel } from "@/lib/flow/modes";
 
 // Cache for model schemas (10 minute TTL)
 const schemaCache = new Map<string, { parameters: ModelParameter[]; inputs: ModelInput[]; timestamp: number }>();
@@ -1185,6 +1186,13 @@ function getGeminiVideoSchema(modelId: string): ExtractedSchema | null {
 }
 
 /**
+ * Get schema for Google Flow video models.
+ */
+function getFlowVideoSchema(modelId: string): ExtractedSchema | null {
+  return getFlowSchemaForModel(modelId);
+}
+
+/**
  * Get schema for Gemini image models (native image generation via Gemini API)
  * Returns null if the model is not a Gemini image model.
  */
@@ -1451,6 +1459,27 @@ function extractWaveSpeedSchema(
   return extractParametersFromSchema(requestSchema as Record<string, unknown>);
 }
 
+function getOpenAIImageSchema(modelId: string): ExtractedSchema {
+  if (modelId !== "gpt-image-2") {
+    return { parameters: [], inputs: [] };
+  }
+
+  return {
+    parameters: [
+      {
+        name: "size",
+        type: "string",
+        description: "Output image size",
+        default: "1024x1024",
+        enum: ["1024x1024", "1024x1536", "1536x1024"],
+      },
+    ],
+    inputs: [
+      { name: "images", type: "image", required: false, label: "Image", isArray: true },
+    ],
+  };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ modelId: string }> }
@@ -1460,11 +1489,11 @@ export async function GET(
   const decodedModelId = decodeURIComponent(modelId);
   const provider = request.nextUrl.searchParams.get("provider") as ProviderType | null;
 
-  if (!provider || (provider !== "replicate" && provider !== "fal" && provider !== "kie" && provider !== "wavespeed" && provider !== "gemini")) {
+  if (!provider || (provider !== "openai" && provider !== "replicate" && provider !== "fal" && provider !== "kie" && provider !== "wavespeed" && provider !== "gemini" && provider !== "flow")) {
     return NextResponse.json<SchemaErrorResponse>(
       {
         success: false,
-        error: "Invalid or missing provider. Use ?provider=replicate, ?provider=fal, ?provider=kie, ?provider=wavespeed, or ?provider=gemini",
+        error: "Invalid or missing provider. Use ?provider=openai, ?provider=replicate, ?provider=fal, ?provider=kie, ?provider=wavespeed, ?provider=gemini, or ?provider=flow",
       },
       { status: 400 }
     );
@@ -1485,7 +1514,11 @@ export async function GET(
   try {
     let result: ExtractedSchema;
 
-    if (provider === "gemini") {
+    if (provider === "openai") {
+      result = getOpenAIImageSchema(decodedModelId);
+    } else if (provider === "flow") {
+      result = getFlowVideoSchema(decodedModelId) ?? { parameters: [], inputs: [] };
+    } else if (provider === "gemini") {
       // Gemini models use hardcoded schemas (video and image)
       const geminiVideoSchema = getGeminiVideoSchema(decodedModelId);
       const geminiImageSchema = getGeminiImageSchema(decodedModelId);

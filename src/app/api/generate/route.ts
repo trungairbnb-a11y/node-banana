@@ -18,6 +18,15 @@ import { generateWithReplicate } from "./providers/replicate";
 import { clearFalInputMappingCache as _clearFalInputMappingCache, generateWithFalQueue } from "./providers/fal";
 import { submitKieTask } from "./providers/kie";
 import { generateWithWaveSpeed } from "./providers/wavespeed";
+import { submitFlowVideoTask } from "@/lib/flow/engine";
+import {
+  buildGenerationTrace,
+  buildTraceWarnings,
+  saveGenerationTrace,
+  summarizeDynamicInputs,
+  summarizeMediaRef,
+} from "@/lib/generationTrace";
+import type { GenerationTrace, GenerationTraceMediaRef } from "@/types";
 
 // Re-export for backward compatibility (test file imports from route)
 export const clearFalInputMappingCache = _clearFalInputMappingCache;
@@ -36,13 +45,82 @@ interface MultiProviderGenerateRequest extends GenerateRequest {
   dynamicInputs?: Record<string, string | string[]>;
 }
 
+function refsFromMedia(values: string[] | undefined, kind: "image" | "video", role: string): GenerationTraceMediaRef[] {
+  return (values ?? []).map((value, index) => summarizeMediaRef({ value, index, role, kind }));
+}
 
-export function buildMediaResponse(output: { type: string; data: string; url?: string }): NextResponse {
+function refsFromDynamicInputs(dynamicInputs?: Record<string, string | string[]>): GenerationTraceMediaRef[] {
+  const refs: GenerationTraceMediaRef[] = [];
+  if (!dynamicInputs) return refs;
+  for (const [key, value] of Object.entries(dynamicInputs)) {
+    if (!/image|frame|video|audio|ref/i.test(key)) continue;
+    const kind = key.toLowerCase().includes("video") ? "video" : key.toLowerCase().includes("audio") ? "audio" : "image";
+    const values = Array.isArray(value) ? value : [value];
+    values.forEach((item, index) => {
+      if (typeof item === "string" && item) refs.push(summarizeMediaRef({ value: item, index, role: key, kind }));
+    });
+  }
+  return refs;
+}
+
+function hashes(refs: GenerationTraceMediaRef[]): string[] {
+  return refs.map((ref) => ref.sha256 || "").filter(Boolean);
+}
+
+async function persistTrace(input: {
+  requestId: string;
+  body: MultiProviderGenerateRequest;
+  provider: ProviderType;
+  resolvedPrompt: string;
+  mediaRefs: GenerationTraceMediaRef[];
+  providerPayload?: Record<string, unknown> | null;
+  response?: Record<string, unknown> | null;
+  error?: string | null;
+  providerImageRefs?: GenerationTraceMediaRef[];
+}): Promise<GenerationTrace> {
+  const warnings = buildTraceWarnings({
+    resolvedPrompt: input.resolvedPrompt,
+    topLevelPrompt: input.body.prompt,
+    dynamicPrompt: input.body.dynamicInputs?.prompt,
+    inputImageHashes: hashes(refsFromMedia(input.body.images, "image", "inputImages")),
+    providerImageHashes: input.providerImageRefs ? hashes(input.providerImageRefs) : undefined,
+  });
+  const connectedInputs = input.body.traceContext?.connectedInputs ?? {
+    text: input.body.prompt ?? null,
+    images: refsFromMedia(input.body.images, "image", "inputImages"),
+    videos: refsFromMedia(input.body.videos, "video", "inputVideos"),
+    dynamicInputs: summarizeDynamicInputs(input.body.dynamicInputs),
+  };
+  const trace = buildGenerationTrace({
+    requestId: input.requestId,
+    context: input.body.traceContext,
+    selectedModel: input.body.selectedModel,
+    provider: input.provider,
+    mediaType: input.body.mediaType ?? "image",
+    parameters: input.body.parameters ?? null,
+    resolvedPrompt: input.resolvedPrompt,
+    mediaRefs: input.mediaRefs,
+    connectedInputs,
+    providerPayload: input.providerPayload ?? null,
+    response: input.response ?? null,
+    error: input.error ?? null,
+    warnings,
+  });
+  return saveGenerationTrace(trace);
+}
+
+function traceForResponse(body: MultiProviderGenerateRequest, trace: GenerationTrace): GenerationTrace | undefined {
+  return body.traceContext ? trace : undefined;
+}
+
+
+export function buildMediaResponse(output: { type: string; data: string; url?: string }, generationTrace?: GenerationTrace): NextResponse {
   if (output.type === "3d") {
     return NextResponse.json<GenerateResponse>({
       success: true,
       model3dUrl: output.url,
       contentType: "3d",
+      generationTrace,
     });
   }
 
@@ -53,6 +131,7 @@ export function buildMediaResponse(output: { type: string; data: string; url?: s
       video: isLarge ? undefined : output.data,
       videoUrl: isLarge ? output.url : undefined,
       contentType: "video",
+      generationTrace,
     });
   }
 
@@ -63,6 +142,7 @@ export function buildMediaResponse(output: { type: string; data: string; url?: s
       audio: isLarge ? undefined : output.data,
       audioUrl: isLarge ? output.url : undefined,
       contentType: "audio",
+      generationTrace,
     });
   }
 
@@ -70,6 +150,7 @@ export function buildMediaResponse(output: { type: string; data: string; url?: s
     success: true,
     image: output.data,
     contentType: "image",
+    generationTrace,
   });
 }
 
@@ -82,6 +163,51 @@ function capabilitiesForMediaType(mediaType?: string): ModelCapability[] {
   return map[mediaType ?? ""] ?? ["text-to-image"];
 }
 
+function getOpenAIBaseUrl(): string {
+  return (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
+}
+
+function normalizeOpenAIImageSize(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "1024x1024";
+}
+
+function collectOpenAIEditImages(
+  images?: string[],
+  dynamicInputs?: Record<string, string | string[]>
+): string[] {
+  const collected = [...(images ?? [])];
+
+  if (dynamicInputs) {
+    for (const [key, value] of Object.entries(dynamicInputs)) {
+      const normalizedKey = key.toLowerCase();
+      if (!normalizedKey.includes("image") && !normalizedKey.includes("frame")) continue;
+      if (Array.isArray(value)) {
+        collected.push(...value);
+      } else if (value) {
+        collected.push(value);
+      }
+    }
+  }
+
+  return [...new Set(collected.filter(Boolean))];
+}
+
+async function fetchImageUrlAsDataUrl(url: string, apiKey: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to download generated image: ${response.status}`);
+  }
+
+  const contentType = response.headers.get("content-type") || "image/png";
+  const buffer = await response.arrayBuffer();
+  return `data:${contentType};base64,${Buffer.from(buffer).toString("base64")}`;
+}
+
 export async function POST(request: NextRequest) {
   const requestId = Math.random().toString(36).substring(7);
   console.log(`\n[API:${requestId}] ========== NEW GENERATE REQUEST ==========`);
@@ -90,6 +216,7 @@ export async function POST(request: NextRequest) {
     const body: MultiProviderGenerateRequest = await request.json();
     const {
       images,
+      videos,
       prompt,
       model = "nano-banana-pro",
       aspectRatio,
@@ -100,6 +227,9 @@ export async function POST(request: NextRequest) {
       parameters,
       dynamicInputs,
       mediaType,
+      workflowId,
+      workflowName,
+      mediaRefs,
     } = body;
 
     // Prompt is required unless:
@@ -112,11 +242,12 @@ export async function POST(request: NextRequest) {
         : Array.isArray(dynamicInputs.prompt) && dynamicInputs.prompt.length > 0
     ));
     const hasImages = (images && images.length > 0);
+    const hasVideos = (videos && videos.length > 0);
     const hasImageInputs = dynamicInputs && Object.keys(dynamicInputs).some(key =>
-      key.includes('frame') || key.includes('image')
+      key.toLowerCase().includes('frame') || key.toLowerCase().includes('image') || key.toLowerCase().includes('video')
     );
 
-    if (!hasPrompt && !hasImages && !hasImageInputs) {
+    if (!hasPrompt && !hasImages && !hasVideos && !hasImageInputs) {
       return NextResponse.json<GenerateResponse>(
         {
           success: false,
@@ -131,6 +262,234 @@ export async function POST(request: NextRequest) {
     console.log(`[API:${requestId}] Provider: ${provider}, Model: ${selectedModel?.modelId || model}`);
 
     // Route to appropriate provider
+    if (provider === "flow") {
+      if (!selectedModel?.modelId || !selectedModel?.displayName) {
+        return NextResponse.json<GenerateResponse>(
+          { success: false, error: "selectedModel with modelId and displayName is required for Google Flow" },
+          { status: 400 }
+        );
+      }
+
+      try {
+        const resolvedPrompt =
+          typeof dynamicInputs?.prompt === "string"
+            ? dynamicInputs.prompt
+            : Array.isArray(dynamicInputs?.prompt)
+              ? dynamicInputs.prompt[0]
+              : prompt || "";
+        const task = await submitFlowVideoTask({
+          prompt,
+          modelId: selectedModel.modelId,
+          modelName: selectedModel.displayName,
+          images: images ?? [],
+          videos: videos ?? [],
+          mediaRefs,
+          dynamicInputs,
+          parameters,
+          workflowId,
+          workflowName,
+          requestOrigin: request.nextUrl?.origin,
+        });
+        const trace = await persistTrace({
+          requestId,
+          body,
+          provider,
+          resolvedPrompt,
+          mediaRefs: [
+            ...refsFromMedia(images, "image", "inputImages"),
+            ...refsFromMedia(videos, "video", "inputVideos"),
+            ...refsFromDynamicInputs(dynamicInputs),
+          ],
+          providerPayload: {
+            flowTaskId: task.id,
+            mode: task.mode,
+            modelId: task.modelId,
+            modelName: task.modelName,
+            projectId: task.projectId,
+            operationNames: task.operationNames,
+            generationTrace: task.generationTrace,
+          },
+          response: { polling: true, taskId: task.id, provider: "flow" },
+        });
+
+        return NextResponse.json<GenerateResponse>({
+          success: true,
+          polling: true,
+          taskId: task.id,
+          pollProvider: "flow",
+          pollModelId: selectedModel.modelId,
+          pollModelName: selectedModel.displayName,
+          pollMediaType: "video",
+          generationTrace: traceForResponse(body, trace),
+        });
+      } catch (error) {
+        const trace = await persistTrace({
+          requestId,
+          body,
+          provider,
+          resolvedPrompt: prompt || "",
+          mediaRefs: [
+            ...refsFromMedia(images, "image", "inputImages"),
+            ...refsFromMedia(videos, "video", "inputVideos"),
+            ...refsFromDynamicInputs(dynamicInputs),
+          ],
+          providerPayload: { modelId: selectedModel.modelId, modelName: selectedModel.displayName },
+          error: error instanceof Error ? error.message : "Google Flow task submission failed",
+        });
+        return NextResponse.json<GenerateResponse>(
+          {
+            success: false,
+            error: error instanceof Error ? error.message : "Google Flow task submission failed",
+            generationTrace: traceForResponse(body, trace),
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (provider === "openai") {
+      if (!selectedModel?.modelId || !selectedModel?.displayName) {
+        return NextResponse.json<GenerateResponse>(
+          { success: false, error: "selectedModel with modelId and displayName is required for OpenAI" },
+          { status: 400 }
+        );
+      }
+
+      const openaiApiKey = request.headers.get("X-OpenAI-API-Key") || process.env.OPENAI_API_KEY;
+      if (!openaiApiKey) {
+        return NextResponse.json<GenerateResponse>(
+          {
+            success: false,
+            error: "OpenAI API key not configured. Add OPENAI_API_KEY to .env.local or configure in Settings.",
+          },
+          { status: 401 }
+        );
+      }
+
+      const resolvedPrompt =
+        prompt ||
+        (typeof dynamicInputs?.prompt === "string"
+          ? dynamicInputs.prompt
+          : Array.isArray(dynamicInputs?.prompt)
+            ? dynamicInputs.prompt[0]
+            : "") ||
+        "";
+      const editImages = collectOpenAIEditImages(images, dynamicInputs);
+      const hasEditImages = editImages.length > 0 || !!hasImageInputs;
+      const imageEndpoint = hasEditImages ? "edits" : "generations";
+      const providerImageRefs = refsFromMedia(editImages, "image", "openaiEditImages");
+      const imageBody = hasEditImages
+        ? {
+            model: selectedModel.modelId,
+            prompt: resolvedPrompt,
+            images: editImages.map((image) => ({ image_url: image })),
+            n: 1,
+            size: normalizeOpenAIImageSize(parameters?.size),
+            response_format: "b64_json",
+          }
+        : {
+            model: selectedModel.modelId,
+            prompt: resolvedPrompt,
+            n: 1,
+            size: normalizeOpenAIImageSize(parameters?.size),
+            response_format: "b64_json",
+          };
+
+      console.log(`[API:${requestId}] OpenAI image request`, {
+        endpoint: imageEndpoint,
+        promptLength: resolvedPrompt.length,
+        promptPreview: resolvedPrompt.slice(0, 300),
+        imageCount: editImages.length,
+        size: imageBody.size,
+      });
+      let trace = await persistTrace({
+        requestId,
+        body,
+        provider,
+        resolvedPrompt,
+        mediaRefs: providerImageRefs,
+        providerImageRefs,
+        providerPayload: {
+          endpoint: `images/${imageEndpoint}`,
+          body: imageBody,
+        },
+      });
+
+      const imageResponse = await fetch(`${getOpenAIBaseUrl()}/images/${imageEndpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${openaiApiKey}`,
+        },
+        body: JSON.stringify(imageBody),
+      });
+
+      if (!imageResponse.ok) {
+        const errorText = await imageResponse.text();
+        let errorMessage = `OpenAI image generation failed: ${imageResponse.status}`;
+        try {
+          const parsed = JSON.parse(errorText);
+          errorMessage = parsed.error?.message || parsed.message || errorMessage;
+        } catch {
+          if (errorText) errorMessage = errorText.substring(0, 500);
+        }
+        trace = await persistTrace({
+          requestId,
+          body,
+          provider,
+          resolvedPrompt,
+          mediaRefs: providerImageRefs,
+          providerImageRefs,
+          providerPayload: {
+            endpoint: `images/${imageEndpoint}`,
+            body: imageBody,
+          },
+          error: errorMessage,
+        });
+        return NextResponse.json<GenerateResponse>(
+          { success: false, error: errorMessage, generationTrace: traceForResponse(body, trace) },
+          { status: imageResponse.status }
+        );
+      }
+
+      const data = await imageResponse.json();
+      const first = data.data?.[0];
+      let dataUrl: string | null = null;
+      if (first?.b64_json) {
+        dataUrl = `data:image/png;base64,${first.b64_json}`;
+      } else if (first?.url) {
+        dataUrl = await fetchImageUrlAsDataUrl(first.url, openaiApiKey);
+      }
+
+      if (!dataUrl) {
+        return NextResponse.json<GenerateResponse>(
+          { success: false, error: "No image in OpenAI response", generationTrace: traceForResponse(body, trace) },
+          { status: 500 }
+        );
+      }
+
+      trace = await persistTrace({
+        requestId,
+        body,
+        provider,
+        resolvedPrompt,
+        mediaRefs: providerImageRefs,
+        providerImageRefs,
+        providerPayload: {
+          endpoint: `images/${imageEndpoint}`,
+          body: imageBody,
+        },
+        response: { contentType: "image", output: dataUrl.startsWith("data:") ? "data:image" : "url" },
+      });
+
+      return NextResponse.json<GenerateResponse>({
+        success: true,
+        image: dataUrl,
+        contentType: "image",
+        generationTrace: traceForResponse(body, trace),
+      });
+    }
+
     if (provider === "replicate") {
       if (!selectedModel?.modelId || !selectedModel?.displayName) {
         return NextResponse.json<GenerateResponse>(
@@ -188,12 +547,30 @@ export async function POST(request: NextRequest) {
       };
 
       const result = await generateWithReplicate(requestId, replicateApiKey, genInput);
+      const trace = await persistTrace({
+        requestId,
+        body,
+        provider,
+        resolvedPrompt: genInput.prompt,
+        mediaRefs: [
+          ...refsFromMedia(processedImages, "image", "inputImages"),
+          ...refsFromDynamicInputs(processedDynamicInputs),
+        ],
+        providerPayload: {
+          provider: "replicate",
+          modelId: selectedModel.modelId,
+          input: genInput,
+        },
+        response: result.success ? { outputCount: result.outputs?.length ?? 0 } : null,
+        error: result.success ? null : result.error || "Generation failed",
+      });
 
       if (!result.success) {
         return NextResponse.json<GenerateResponse>(
           {
             success: false,
             error: result.error || "Generation failed",
+            generationTrace: traceForResponse(body, trace),
           },
           { status: 500 }
         );
@@ -203,12 +580,12 @@ export async function POST(request: NextRequest) {
       const output = result.outputs?.[0];
       if (!output?.data && !output?.url) {
         return NextResponse.json<GenerateResponse>(
-          { success: false, error: "No output in generation result" },
+          { success: false, error: "No output in generation result", generationTrace: traceForResponse(body, trace) },
           { status: 500 }
         );
       }
 
-      return buildMediaResponse(output);
+      return buildMediaResponse(output, traceForResponse(body, trace));
     }
 
     if (provider === "fal") {
@@ -263,12 +640,30 @@ export async function POST(request: NextRequest) {
       };
 
       const result = await generateWithFalQueue(requestId, falApiKey, genInput);
+      const trace = await persistTrace({
+        requestId,
+        body,
+        provider,
+        resolvedPrompt: genInput.prompt,
+        mediaRefs: [
+          ...refsFromMedia(processedImages, "image", "inputImages"),
+          ...refsFromDynamicInputs(processedDynamicInputs),
+        ],
+        providerPayload: {
+          provider: "fal",
+          modelId: selectedModel.modelId,
+          input: genInput,
+        },
+        response: result.success ? { outputCount: result.outputs?.length ?? 0 } : null,
+        error: result.success ? null : result.error || "Generation failed",
+      });
 
       if (!result.success) {
         return NextResponse.json<GenerateResponse>(
           {
             success: false,
             error: result.error || "Generation failed",
+            generationTrace: traceForResponse(body, trace),
           },
           { status: 500 }
         );
@@ -278,12 +673,12 @@ export async function POST(request: NextRequest) {
       const output = result.outputs?.[0];
       if (!output?.data && !output?.url) {
         return NextResponse.json<GenerateResponse>(
-          { success: false, error: "No output in generation result" },
+          { success: false, error: "No output in generation result", generationTrace: traceForResponse(body, trace) },
           { status: 500 }
         );
       }
 
-      return buildMediaResponse(output);
+      return buildMediaResponse(output, traceForResponse(body, trace));
     }
 
     if (provider === "kie") {
@@ -343,7 +738,25 @@ export async function POST(request: NextRequest) {
 
       // Submit task and return immediately — client polls for completion
       try {
-        const { taskId, isVeo } = await submitKieTask(requestId, kieApiKey, genInput);
+        const { taskId, isVeo, trace: kieTrace } = await submitKieTask(requestId, kieApiKey, genInput);
+        const trace = await persistTrace({
+          requestId,
+          body,
+          provider,
+          resolvedPrompt: genInput.prompt,
+          mediaRefs: [
+            ...refsFromMedia(processedImages, "image", "inputImages"),
+            ...refsFromDynamicInputs(processedDynamicInputs),
+          ],
+          providerPayload: {
+            provider: "kie",
+            modelId: selectedModel.modelId,
+            taskId,
+            isVeo,
+            ...kieTrace,
+          },
+          response: { polling: true, taskId, provider: "kie" },
+        });
         return NextResponse.json<GenerateResponse>({
           success: true,
           polling: true,
@@ -352,12 +765,26 @@ export async function POST(request: NextRequest) {
           pollModelId: selectedModel.modelId,
           pollModelName: selectedModel.displayName,
           pollMediaType: mediaType || 'image',
+          generationTrace: traceForResponse(body, trace),
         });
       } catch (error) {
+        const trace = await persistTrace({
+          requestId,
+          body,
+          provider,
+          resolvedPrompt: genInput.prompt,
+          mediaRefs: [
+            ...refsFromMedia(processedImages, "image", "inputImages"),
+            ...refsFromDynamicInputs(processedDynamicInputs),
+          ],
+          providerPayload: { provider: "kie", modelId: selectedModel.modelId },
+          error: error instanceof Error ? error.message : "Task submission failed",
+        });
         return NextResponse.json<GenerateResponse>(
           {
             success: false,
             error: error instanceof Error ? error.message : "Task submission failed",
+            generationTrace: traceForResponse(body, trace),
           },
           { status: 500 }
         );
@@ -420,12 +847,30 @@ export async function POST(request: NextRequest) {
       };
 
       const result = await generateWithWaveSpeed(requestId, wavespeedApiKey, genInput);
+      const trace = await persistTrace({
+        requestId,
+        body,
+        provider,
+        resolvedPrompt: genInput.prompt,
+        mediaRefs: [
+          ...refsFromMedia(processedImages, "image", "inputImages"),
+          ...refsFromDynamicInputs(processedDynamicInputs),
+        ],
+        providerPayload: {
+          provider: "wavespeed",
+          modelId: selectedModel.modelId,
+          input: genInput,
+        },
+        response: result.success ? { outputCount: result.outputs?.length ?? 0 } : null,
+        error: result.success ? null : result.error || "Generation failed",
+      });
 
       if (!result.success) {
         return NextResponse.json<GenerateResponse>(
           {
             success: false,
             error: result.error || "Generation failed",
+            generationTrace: traceForResponse(body, trace),
           },
           { status: 500 }
         );
@@ -435,12 +880,12 @@ export async function POST(request: NextRequest) {
       const output = result.outputs?.[0];
       if (!output?.data && !output?.url) {
         return NextResponse.json<GenerateResponse>(
-          { success: false, error: "No output in generation result" },
+          { success: false, error: "No output in generation result", generationTrace: traceForResponse(body, trace) },
           { status: 500 }
         );
       }
 
-      return buildMediaResponse(output);
+      return buildMediaResponse(output, traceForResponse(body, trace));
     }
 
     // Default: Use Gemini
@@ -495,10 +940,26 @@ export async function POST(request: NextRequest) {
         images || [],
         veoParams,
       );
+      const trace = await persistTrace({
+        requestId,
+        body,
+        provider,
+        resolvedPrompt: resolvedPrompt || "",
+        mediaRefs: refsFromMedia(images, "image", "inputImages"),
+        providerPayload: {
+          provider: "gemini",
+          modelId: selectedModel.modelId,
+          prompt: resolvedPrompt || "",
+          images: refsFromMedia(images, "image", "geminiVideoImages"),
+          parameters: veoParams,
+        },
+        response: result.success ? { outputCount: result.outputs?.length ?? 0 } : null,
+        error: result.success ? null : result.error || "Video generation failed",
+      });
 
       if (!result.success) {
         return NextResponse.json<GenerateResponse>(
-          { success: false, error: result.error || "Video generation failed" },
+          { success: false, error: result.error || "Video generation failed", generationTrace: traceForResponse(body, trace) },
           { status: 500 }
         );
       }
@@ -506,14 +967,31 @@ export async function POST(request: NextRequest) {
       const output = result.outputs?.[0];
       if (!output?.data && !output?.url) {
         return NextResponse.json<GenerateResponse>(
-          { success: false, error: "No output in video generation result" },
+          { success: false, error: "No output in video generation result", generationTrace: traceForResponse(body, trace) },
           { status: 500 }
         );
       }
 
-      return buildMediaResponse(output);
+      return buildMediaResponse(output, traceForResponse(body, trace));
     }
 
+    const trace = await persistTrace({
+      requestId,
+      body,
+      provider,
+      resolvedPrompt: resolvedPrompt || "",
+      mediaRefs: refsFromMedia(images, "image", "inputImages"),
+      providerPayload: {
+        provider: "gemini",
+        modelId: geminiModel,
+        prompt: resolvedPrompt || "",
+        images: refsFromMedia(images, "image", "geminiImages"),
+        aspectRatio,
+        resolution,
+        useGoogleSearch,
+        useImageSearch,
+      },
+    });
     return await generateWithGemini(
       requestId,
       geminiApiKey,
@@ -523,7 +1001,8 @@ export async function POST(request: NextRequest) {
       aspectRatio,
       resolution,
       useGoogleSearch,
-      useImageSearch
+      useImageSearch,
+      traceForResponse(body, trace)
     );
   } catch (error) {
     // Extract error information

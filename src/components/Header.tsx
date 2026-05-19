@@ -7,6 +7,8 @@ import { ProjectSetupModal } from "./ProjectSetupModal";
 import { CostIndicator } from "./CostIndicator";
 import { KeyboardShortcutsDialog } from "./KeyboardShortcutsDialog";
 import { WorkflowBrowserModal } from "./WorkflowBrowserModal";
+import { RetargetModelsModal } from "./modals/RetargetModelsModal";
+import { fetchModelRetargetEnvStatus, scanWorkflowForModelRetargets } from "@/lib/modelRetargeting";
 
 function CommentsNavigationIcon() {
   // Subscribe to nodes so we re-render when comments change
@@ -95,6 +97,7 @@ export function Header() {
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [projectModalMode, setProjectModalMode] = useState<"new" | "settings">("new");
   const [showWorkflowBrowser, setShowWorkflowBrowser] = useState(false);
+  const [showRetargetModels, setShowRetargetModels] = useState(false);
 
   const isProjectConfigured = !!workflowName;
   const canSave = !!(workflowId && workflowName && saveDirectoryPath);
@@ -119,6 +122,19 @@ export function Header() {
   const handleOpenFile = () => {
     setShowWorkflowBrowser(true);
   };
+
+  const openRetargetModalIfNeeded = useCallback(async () => {
+    const envStatus = await fetchModelRetargetEnvStatus();
+    const state = useWorkflowStore.getState();
+    const issues = scanWorkflowForModelRetargets(
+      state.nodes,
+      state.providerSettings,
+      envStatus
+    );
+    if (issues.length > 0) {
+      setShowRetargetModels(true);
+    }
+  }, []);
 
   const handleProjectSave = async (id: string, name: string, path: string) => {
     setWorkflowMetadata(id, name, path); // generationsPath is auto-derived
@@ -210,7 +226,12 @@ export function Header() {
         onWorkflowLoaded={async (workflow, dirPath) => {
           setShowWorkflowBrowser(false);
           await loadWorkflow(workflow, dirPath);
+          await openRetargetModalIfNeeded();
         }}
+      />
+      <RetargetModelsModal
+        isOpen={showRetargetModels}
+        onClose={() => setShowRetargetModels(false)}
       />
       <header className="h-11 bg-neutral-900 border-b border-neutral-800 flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-2">
@@ -298,6 +319,21 @@ export function Header() {
                       />
                     </svg>
                   </button>
+                  <button
+                    onClick={() => setShowRetargetModels(true)}
+                    className="p-1.5 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 rounded transition-colors"
+                    title="Retarget Models"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={1.7}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h10m0 0-3-3m3 3-3 3M17 17H7m0 0 3 3m-3-3 3-3" />
+                    </svg>
+                  </button>
                 </div>
 
                 {settingsButtons}
@@ -346,6 +382,21 @@ export function Header() {
                         strokeLinejoin="round"
                         d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"
                       />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => setShowRetargetModels(true)}
+                    className="p-1.5 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 rounded transition-colors"
+                    title="Retarget Models"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={1.7}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h10m0 0-3-3m3 3-3 3M17 17H7m0 0 3 3m-3-3 3-3" />
                     </svg>
                   </button>
                 </div>

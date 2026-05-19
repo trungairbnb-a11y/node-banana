@@ -8,6 +8,7 @@ import {
   saveConcurrencySetting,
   DEFAULT_MAX_CONCURRENT_CALLS,
   CONCURRENCY_SETTINGS_KEY,
+  chunkWorkflowExecutionNodes,
 } from "../executionUtils";
 import type { WorkflowNode, WorkflowEdge } from "@/types";
 
@@ -116,6 +117,61 @@ describe("chunk", () => {
 
   it("should throw on Infinity size", () => {
     expect(() => chunk([1, 2], Infinity)).toThrow("Invalid chunk size: must be a positive integer");
+  });
+});
+
+describe("chunkWorkflowExecutionNodes", () => {
+  const makeFlowVideoNode = (id: string): WorkflowNode => ({
+    ...makeNode(id, "generateVideo"),
+    data: {
+      selectedModel: {
+        provider: "flow",
+        modelId: "flow-veo-3.1/reference-video",
+        displayName: "Flow Reference Video",
+      },
+    },
+  } as WorkflowNode);
+
+  it("caps Flow Generate Video nodes at two per execution batch", () => {
+    const result = chunkWorkflowExecutionNodes([
+      makeFlowVideoNode("flow-a"),
+      makeFlowVideoNode("flow-b"),
+      makeFlowVideoNode("flow-c"),
+      makeNode("prompt-a"),
+    ], 3);
+
+    expect(result.map((batch) => batch.map((node) => node.id))).toEqual([
+      ["flow-a", "flow-b"],
+      ["flow-c", "prompt-a"],
+    ]);
+  });
+
+  it("respects lower user concurrency limits", () => {
+    const result = chunkWorkflowExecutionNodes([
+      makeFlowVideoNode("flow-a"),
+      makeFlowVideoNode("flow-b"),
+      makeNode("prompt-a"),
+    ], 1);
+
+    expect(result.map((batch) => batch.map((node) => node.id))).toEqual([
+      ["flow-a"],
+      ["flow-b"],
+      ["prompt-a"],
+    ]);
+  });
+
+  it("keeps non-Flow nodes under the normal max concurrency", () => {
+    const result = chunkWorkflowExecutionNodes([
+      makeNode("a"),
+      makeNode("b"),
+      makeNode("c"),
+      makeNode("d"),
+    ], 3);
+
+    expect(result.map((batch) => batch.map((node) => node.id))).toEqual([
+      ["a", "b", "c"],
+      ["d"],
+    ]);
   });
 });
 

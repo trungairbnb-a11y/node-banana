@@ -37,8 +37,13 @@ next-env.d.ts
 # renders
 renders/
 
+# local workflow media/projects
+/video/
+
 # logs
-logs/*.json
+logs/*
+!logs/.gitkeep
+codex-flow-server*.log
 
 # .claude
 .claude/

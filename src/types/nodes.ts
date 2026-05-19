@@ -18,6 +18,7 @@ export type { AnnotationNodeData, BaseNodeData };
 // Import from domain files to avoid circular dependencies
 import type { AspectRatio, Resolution, ModelType } from "./models";
 import type { LLMProvider, LLMModelType, SelectedModel, ProviderType } from "./providers";
+import type { GenerationTrace } from "./generationTrace";
 
 /**
  * All available node types in the workflow editor
@@ -173,10 +174,11 @@ export interface CarouselVideoItem {
  */
 export interface ModelInputDef {
   name: string;
-  type: "image" | "text" | "audio";
+  type: "image" | "text" | "audio" | "video";
   required: boolean;
   label: string;
   description?: string;
+  isArray?: boolean;
 }
 
 /**
@@ -207,6 +209,8 @@ export interface NanoBananaNodeData extends BaseNodeData {
   __usedFallback?: boolean; // Set by runWithFallback on successful fallback
   __fallbackModelUsed?: string; // Display name of fallback model that succeeded
   __primaryError?: string; // Error message from the primary attempt
+  __batchProgress?: { completed: number; total: number; failed: number };
+  __latestGenerationTrace?: GenerationTrace;
 }
 
 /**
@@ -214,6 +218,7 @@ export interface NanoBananaNodeData extends BaseNodeData {
  */
 export interface GenerateVideoNodeData extends BaseNodeData {
   inputImages: string[];
+  inputVideos?: string[];
   inputImageRefs?: string[]; // External image references for storage optimization
   inputPrompt: string | null;
   outputVideo: string | null; // Video data URL or URL
@@ -232,6 +237,7 @@ export interface GenerateVideoNodeData extends BaseNodeData {
   __usedFallback?: boolean; // Set by runWithFallback on successful fallback
   __fallbackModelUsed?: string; // Display name of fallback model that succeeded
   __primaryError?: string; // Error message from the primary attempt
+  __latestGenerationTrace?: GenerationTrace;
 }
 
 /**

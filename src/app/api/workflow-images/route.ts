@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs/promises";
-import * as path from "path";
 import { logger } from "@/utils/logger";
-import { validateWorkflowPath } from "@/utils/pathValidation";
+import { getWorkflowPathImplementation, validateWorkflowPath } from "@/utils/pathValidation";
 
 export const maxDuration = 300; // 5 minute timeout for large image operations
 
@@ -75,6 +74,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const pathImpl = getWorkflowPathImplementation(workflowPath);
+    workflowPath = pathValidation.resolved;
 
     // Validate workflow directory exists, or create it if missing
     try {
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create target folder if it doesn't exist
-    const targetFolder = path.join(workflowPath, folder);
+    const targetFolder = pathImpl.join(workflowPath, folder);
     try {
       await fs.mkdir(targetFolder, { recursive: true });
     } catch (mkdirError) {
@@ -137,7 +138,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Sanitize imageId to prevent path traversal
-    const safeImageId = path.basename(imageId);
+    const safeImageId = pathImpl.basename(imageId);
     if (safeImageId !== imageId || imageId.includes('..')) {
       return NextResponse.json(
         { success: false, error: "Invalid imageId" },
@@ -148,7 +149,7 @@ export async function POST(request: NextRequest) {
     // Extract MIME type and determine file extension
     const { extension } = getMimeAndExtension(imageData);
     const filename = `${safeImageId}.${extension}`;
-    const filePath = path.join(targetFolder, filename);
+    const filePath = pathImpl.join(targetFolder, filename);
 
     // Extract base64 data and convert to buffer
     const base64Data = imageData.replace(/^data:image\/\w+;base64,/, "");
@@ -219,9 +220,11 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+    const pathImpl = getWorkflowPathImplementation(workflowPath);
+    const resolvedWorkflowPath = pathValidation.resolved;
 
     // Sanitize imageId to prevent path traversal
-    const safeImageId = path.basename(imageId);
+    const safeImageId = pathImpl.basename(imageId);
     if (safeImageId !== imageId || imageId.includes('..')) {
       return NextResponse.json(
         { success: false, error: "Invalid imageId" },
@@ -231,7 +234,7 @@ export async function GET(request: NextRequest) {
 
     // Validate workflow directory exists
     try {
-      const stats = await fs.stat(workflowPath);
+      const stats = await fs.stat(resolvedWorkflowPath);
       if (!stats.isDirectory()) {
         return NextResponse.json(
           { success: false, error: "Workflow path is not a directory" },
@@ -247,9 +250,9 @@ export async function GET(request: NextRequest) {
 
     // Construct file path - check folders and extensions in order
     const possibleExtensions = ["png", "jpg", "jpeg", "gif", "webp"];
-    const inputsFolder = path.join(workflowPath, IMAGES_FOLDER);
-    const generationsFolder = path.join(workflowPath, "generations");
-    const legacyFolder = path.join(workflowPath, LEGACY_IMAGES_FOLDER);
+    const inputsFolder = pathImpl.join(resolvedWorkflowPath, IMAGES_FOLDER);
+    const generationsFolder = pathImpl.join(resolvedWorkflowPath, "generations");
+    const legacyFolder = pathImpl.join(resolvedWorkflowPath, LEGACY_IMAGES_FOLDER);
 
     // Build search order based on folder hint
     const searchOrder = folder === "generations"
@@ -263,7 +266,7 @@ export async function GET(request: NextRequest) {
     for (const searchFolder of searchOrder) {
       for (const ext of possibleExtensions) {
         const filename = `${safeImageId}.${ext}`;
-        const candidatePath = path.join(searchFolder, filename);
+        const candidatePath = pathImpl.join(searchFolder, filename);
         try {
           await fs.access(candidatePath);
           filePath = candidatePath;

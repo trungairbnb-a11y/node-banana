@@ -155,18 +155,17 @@ export async function executePromptConstructor(ctx: NodeExecutionContext): Promi
     const unresolvedVars: string[] = [];
     let resolvedText = template;
 
-    // Replace @variables with values or track unresolved
-    const matches = template.matchAll(varPattern);
-    for (const match of matches) {
-      const varName = match[1];
+    // Replace @variables in one regex pass so @shot1 cannot partially replace
+    // a longer variable such as @shot10.
+    resolvedText = template.replace(varPattern, (match, varName: string) => {
       if (variableMap[varName] !== undefined) {
-        resolvedText = resolvedText.replaceAll(`@${varName}`, variableMap[varName]);
-      } else {
-        if (!unresolvedVars.includes(varName)) {
-          unresolvedVars.push(varName);
-        }
+        return variableMap[varName];
       }
-    }
+      if (!unresolvedVars.includes(varName)) {
+        unresolvedVars.push(varName);
+      }
+      return match;
+    });
 
     updateNodeData(node.id, {
       outputText: resolvedText,

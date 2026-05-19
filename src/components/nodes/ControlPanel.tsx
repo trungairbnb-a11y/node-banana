@@ -15,6 +15,8 @@ import { EASING_PRESETS, getPresetBezier, getEasingBezier } from "@/lib/easing-p
 import { getAllEasingNames, getEasingFunction } from "@/lib/easing-functions";
 import { getModelPageUrl, getProviderDisplayName } from "@/utils/providerUrls";
 import { useInlineParameters } from "@/hooks/useInlineParameters";
+import { buildFlowParametersForModel, DEFAULT_FLOW_MODEL, FLOW_MODELS, getFlowSchemaForModel } from "@/lib/flow/modes";
+import { CCS_OPENAI_IMAGE_MODEL } from "@/lib/modelRetargeting";
 
 // List of node types that have configurable parameters
 const CONFIGURABLE_NODE_TYPES: NodeType[] = [
@@ -57,6 +59,7 @@ const GEMINI_IMAGE_MODELS: { value: ModelType; label: string }[] = [
 const LLM_PROVIDERS: { value: LLMProvider; label: string }[] = [
   { value: "google", label: "Google" },
   { value: "openai", label: "OpenAI" },
+  { value: "ccs", label: "CCS" },
   { value: "anthropic", label: "Anthropic" },
 ];
 
@@ -70,6 +73,21 @@ const LLM_MODELS: Record<LLMProvider, { value: LLMModelType; label: string }[]> 
   openai: [
     { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
     { value: "gpt-4.1-nano", label: "GPT-4.1 Nano" },
+  ],
+  ccs: [
+    { value: "gpt-5.5", label: "GPT-5.5" },
+    { value: "gpt-5.4", label: "GPT-5.4" },
+    { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+    { value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+    { value: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
+    { value: "gpt-5.2", label: "GPT-5.2" },
+    { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
+    { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+    { value: "gemini-3-pro-preview", label: "Gemini 3.0 Pro" },
+    { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+    { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+    { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
+    { value: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" },
   ],
   anthropic: [
     { value: "claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
@@ -201,7 +219,7 @@ function GenerateImageControls({ node }: { node: Node }) {
   const updateNodeData = useWorkflowStore((state) => state.updateNodeData);
   const regenerateNode = useWorkflowStore((state) => state.regenerateNode);
   const isRunning = useWorkflowStore((state) => state.isRunning);
-  const { replicateApiKey, falApiKey, kieApiKey, replicateEnabled, kieEnabled } = useProviderApiKeys();
+  const { openaiApiKey, replicateApiKey, falApiKey, kieApiKey, openaiEnabled, replicateEnabled, kieEnabled } = useProviderApiKeys();
   const [externalModels, setExternalModels] = useState<ProviderModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelsFetchError, setModelsFetchError] = useState<string | null>(null);
@@ -213,6 +231,9 @@ function GenerateImageControls({ node }: { node: Node }) {
   const enabledProviders = useMemo(() => {
     const providers: { id: ProviderType; name: string }[] = [];
     providers.push({ id: "gemini", name: "Gemini" });
+    if (openaiEnabled || openaiApiKey) {
+      providers.push({ id: "openai", name: "OpenAI / CCS" });
+    }
     providers.push({ id: "fal", name: "fal.ai" });
     if (replicateEnabled && replicateApiKey) {
       providers.push({ id: "replicate", name: "Replicate" });
@@ -221,7 +242,7 @@ function GenerateImageControls({ node }: { node: Node }) {
       providers.push({ id: "kie", name: "Kie.ai" });
     }
     return providers;
-  }, [replicateEnabled, replicateApiKey, kieEnabled, kieApiKey]);
+  }, [openaiEnabled, openaiApiKey, replicateEnabled, replicateApiKey, kieEnabled, kieApiKey]);
 
   // Fetch models from external providers
   const fetchModels = useCallback(async () => {
@@ -246,6 +267,12 @@ function GenerateImageControls({ node }: { node: Node }) {
         case "kie":
           if (kieApiKey) headers["X-Kie-Key"] = kieApiKey;
           break;
+        case "openai":
+          if (openaiApiKey) {
+            headers["X-OpenAI-Key"] = openaiApiKey;
+            headers["X-OpenAI-API-Key"] = openaiApiKey;
+          }
+          break;
       }
 
       const response = await deduplicatedFetch(`/api/models?provider=${currentProvider}&capabilities=${capabilities}`, { headers });
@@ -266,7 +293,7 @@ function GenerateImageControls({ node }: { node: Node }) {
     } finally {
       setIsLoadingModels(false);
     }
-  }, [currentProvider, replicateApiKey, falApiKey, kieApiKey]);
+  }, [currentProvider, openaiApiKey, replicateApiKey, falApiKey, kieApiKey]);
 
   useEffect(() => {
     fetchModels();
@@ -382,12 +409,25 @@ function GenerateImageControls({ node }: { node: Node }) {
     setIsBrowseDialogOpen(false);
   }, [node.id, updateNodeData]);
 
+  const handleUseOpenAICompatibleImage = useCallback(() => {
+    updateNodeData(node.id, {
+      selectedModel: CCS_OPENAI_IMAGE_MODEL,
+      parameters: {},
+      inputSchema: undefined,
+      fallbackModel: undefined,
+      fallbackParameters: undefined,
+      status: "idle",
+      error: null,
+    });
+  }, [node.id, updateNodeData]);
+
   const isGeminiProvider = currentProvider === "gemini";
   const currentModelId = isGeminiProvider ? (nodeData.selectedModel?.modelId || nodeData.model) : null;
   const supportsResolution = currentModelId === "nano-banana-pro" || currentModelId === "nano-banana-2";
   const aspectRatios = currentModelId === "nano-banana-2" ? EXTENDED_ASPECT_RATIOS : BASE_ASPECT_RATIOS;
   const resolutions = currentModelId === "nano-banana-2" ? RESOLUTIONS_NB2 : RESOLUTIONS_PRO;
-  const hasExternalProviders = !!(replicateEnabled && replicateApiKey);
+  const showOpenAICompatibleTarget =
+    currentProvider !== "openai" || nodeData.selectedModel?.modelId !== CCS_OPENAI_IMAGE_MODEL.modelId;
 
   return (
     <>
@@ -401,7 +441,7 @@ function GenerateImageControls({ node }: { node: Node }) {
               </div>
               <div className="flex items-center gap-1 mt-0.5">
                 <span className="text-[10px] text-neutral-500 truncate">
-                  {enabledProviders.find(p => p.id === currentProvider)?.name || currentProvider}
+                  {getProviderDisplayName(currentProvider)}
                 </span>
                 {nodeData.selectedModel?.modelId && (
                   <a
@@ -431,6 +471,31 @@ function GenerateImageControls({ node }: { node: Node }) {
             </button>
           </div>
         </div>
+
+        {showOpenAICompatibleTarget && (
+          <div className="rounded-md border border-cyan-700/40 bg-cyan-950/20 p-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-cyan-200">Use CCS / OpenAI-compatible</p>
+                <p className="mt-0.5 text-[10px] leading-4 text-neutral-400">
+                  Switch this image node to GPT Image 2 and clear the unavailable Kie fallback.
+                </p>
+                {!openaiApiKey && !openaiEnabled && (
+                  <p className="mt-1 text-[10px] text-amber-300">
+                    Add OPENAI_API_KEY in Settings or .env.local before running.
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleUseOpenAICompatibleImage}
+                className="nodrag nopan shrink-0 rounded border border-cyan-600/60 bg-cyan-600/20 px-2 py-1 text-[11px] font-medium text-cyan-100 hover:bg-cyan-600/30"
+              >
+                Use
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Gemini-specific controls */}
         {isGeminiProvider && (
@@ -553,9 +618,51 @@ function GenerateVideoControls({ node }: { node: Node }) {
       displayName: model.name,
       capabilities: model.capabilities,
     };
-    updateNodeData(node.id, { selectedModel: newSelectedModel, parameters: {} });
+    updateNodeData(node.id, {
+      selectedModel: newSelectedModel,
+      parameters: model.provider === "flow"
+        ? buildFlowParametersForModel(model.id, nodeData.parameters || {})
+        : {},
+      inputSchema: model.provider === "flow"
+        ? getFlowSchemaForModel(model.id)?.inputs
+        : undefined,
+    });
     setIsBrowseDialogOpen(false);
-  }, [node.id, updateNodeData]);
+  }, [node.id, nodeData.parameters, updateNodeData]);
+
+  const handleUseFlowVideo = useCallback(() => {
+    updateNodeData(node.id, {
+      selectedModel: {
+        provider: "flow",
+        modelId: DEFAULT_FLOW_MODEL.id,
+        displayName: DEFAULT_FLOW_MODEL.name,
+        capabilities: DEFAULT_FLOW_MODEL.capabilities,
+      },
+      parameters: buildFlowParametersForModel(DEFAULT_FLOW_MODEL.id, nodeData.parameters || {}),
+      inputSchema: getFlowSchemaForModel(DEFAULT_FLOW_MODEL.id)?.inputs,
+      fallbackModel: undefined,
+      fallbackParameters: undefined,
+      status: "idle",
+      error: null,
+    });
+  }, [node.id, nodeData.parameters, updateNodeData]);
+
+  const handleFlowModeChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const model = FLOW_MODELS.find((candidate) => candidate.id === e.target.value);
+      if (!model) return;
+      updateNodeData(node.id, {
+        selectedModel: {
+          provider: "flow",
+          modelId: model.id,
+          displayName: model.name,
+        },
+        parameters: buildFlowParametersForModel(model.id, nodeData.parameters || {}),
+        inputSchema: getFlowSchemaForModel(model.id)?.inputs,
+      });
+    },
+    [node.id, nodeData.parameters, updateNodeData]
+  );
 
   return (
     <>
@@ -599,6 +706,50 @@ function GenerateVideoControls({ node }: { node: Node }) {
             </button>
           </div>
         </div>
+
+        {currentProvider !== "flow" && (
+          <div className="rounded-md border border-cyan-700/40 bg-cyan-950/20 p-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-cyan-200">Use Google Flow</p>
+                <p className="mt-0.5 text-[10px] leading-4 text-neutral-400">
+                  Switch this video node to Flow, then choose the Flow mode below.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleUseFlowVideo}
+                className="nodrag nopan shrink-0 rounded border border-cyan-600/60 bg-cyan-600/20 px-2 py-1 text-[11px] font-medium text-cyan-100 hover:bg-cyan-600/30"
+              >
+                Use
+              </button>
+            </div>
+          </div>
+        )}
+
+        {currentProvider === "flow" && (
+          <div className="min-w-0 space-y-1">
+            <label
+              htmlFor={`${node.id}-control-flow-mode`}
+              className="block text-[10px] uppercase tracking-wide text-neutral-500"
+            >
+              Flow Mode
+            </label>
+            <select
+              id={`${node.id}-control-flow-mode`}
+              aria-label="Flow Mode"
+              className="nodrag nopan block w-full min-w-0 bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 text-xs leading-4 text-neutral-100 focus:outline-none focus:border-blue-500 truncate"
+              value={nodeData.selectedModel?.modelId || DEFAULT_FLOW_MODEL.id}
+              onChange={handleFlowModeChange}
+            >
+              {FLOW_MODELS.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {nodeData.selectedModel?.modelId && (
           <ModelParameters

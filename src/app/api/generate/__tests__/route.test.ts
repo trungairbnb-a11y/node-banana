@@ -30,8 +30,16 @@ const { mockGenerateContent, MockGoogleGenAI } = vi.hoisted(() => {
   return { mockGenerateContent, MockGoogleGenAI };
 });
 
+const { mockSubmitFlowVideoTask } = vi.hoisted(() => ({
+  mockSubmitFlowVideoTask: vi.fn(),
+}));
+
 vi.mock("@google/genai", () => ({
   GoogleGenAI: MockGoogleGenAI,
+}));
+
+vi.mock("@/lib/flow/engine", () => ({
+  submitFlowVideoTask: mockSubmitFlowVideoTask,
 }));
 
 // Mock image upload utilities (not used in Gemini path but imported)
@@ -908,6 +916,110 @@ describe("/api/generate route", () => {
     });
   });
 
+  describe("Flow provider", () => {
+    it("should submit connected images with the prompt for Google Flow polling", async () => {
+      mockSubmitFlowVideoTask.mockResolvedValueOnce({ id: "flow_task_123_abc" });
+
+      const request = createMockPostRequest({
+        prompt: "Animate this workspace",
+        images: ["data:image/png;base64,connected"],
+        selectedModel: {
+          provider: "flow",
+          modelId: "flow-veo-3.1/reference-video",
+          displayName: "Flow Reference Video",
+        },
+        mediaType: "video",
+      });
+
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toMatchObject({
+        success: true,
+        polling: true,
+        taskId: "flow_task_123_abc",
+        pollProvider: "flow",
+        pollMediaType: "video",
+      });
+      expect(mockSubmitFlowVideoTask).toHaveBeenCalledWith(expect.objectContaining({
+        prompt: "Animate this workspace",
+        modelId: "flow-veo-3.1/reference-video",
+        modelName: "Flow Reference Video",
+        images: ["data:image/png;base64,connected"],
+        videos: [],
+      }));
+    });
+
+    it("should forward dynamic inputs to the Flow engine for mode-specific mapping", async () => {
+      mockSubmitFlowVideoTask.mockResolvedValueOnce({ id: "flow_task_456_def" });
+
+      const request = createMockPostRequest({
+        selectedModel: {
+          provider: "flow",
+          modelId: "flow-veo-3.1/reference-video",
+          displayName: "Flow Reference Video",
+        },
+        dynamicInputs: {
+          prompt: "Use this first frame",
+          referenceImages: [
+            "data:image/png;base64,image-input",
+            "data:image/jpeg;base64,frame-input",
+          ],
+        },
+        mediaType: "video",
+      });
+
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(mockSubmitFlowVideoTask).toHaveBeenCalledWith(expect.objectContaining({
+        modelId: "flow-veo-3.1/reference-video",
+        modelName: "Flow Reference Video",
+        dynamicInputs: {
+          prompt: "Use this first frame",
+          referenceImages: [
+            "data:image/png;base64,image-input",
+            "data:image/jpeg;base64,frame-input",
+          ],
+        },
+      }));
+    });
+
+    it("should submit upscale video mode with connected videos", async () => {
+      mockSubmitFlowVideoTask.mockResolvedValueOnce({ id: "flow_task_789_def" });
+
+      const request = createMockPostRequest({
+        videos: ["data:video/mp4;base64,connected-video"],
+        selectedModel: {
+          provider: "flow",
+          modelId: "flow-veo-3.1/upscale-video",
+          displayName: "Flow Upscale Video",
+        },
+        workflowId: "wf_flow_test",
+        workflowName: "Flow Test",
+        mediaType: "video",
+      });
+
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(mockSubmitFlowVideoTask).toHaveBeenCalledWith(expect.objectContaining({
+        prompt: undefined,
+        modelId: "flow-veo-3.1/upscale-video",
+        modelName: "Flow Upscale Video",
+        images: [],
+        videos: ["data:video/mp4;base64,connected-video"],
+        workflowId: "wf_flow_test",
+        workflowName: "Flow Test",
+      }));
+    });
+  });
+
   describe("Response handling", () => {
     it("should return proper response structure with image", async () => {
       process.env.GEMINI_API_KEY = "test-gemini-key";
@@ -964,6 +1076,119 @@ describe("/api/generate route", () => {
       expect(data.success).toBe(true);
       // Should default to image/png
       expect(data.image).toBe("data:image/png;base64,noMimeTypeData");
+    });
+  });
+
+  describe("OpenAI provider", () => {
+    const mockFetch = vi.fn();
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+      global.fetch = mockFetch;
+      mockFetch.mockReset();
+      process.env.OPENAI_API_KEY = "test-openai-key";
+      process.env.OPENAI_BASE_URL = "http://127.0.0.1:8317/v1";
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it("should use image generations for prompt-only requests", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: [{ b64_json: "generatedImage" }],
+        }),
+      });
+
+      const request = createMockPostRequest({
+        prompt: "A bright workspace",
+        selectedModel: {
+          provider: "openai",
+          modelId: "gpt-image-2",
+          displayName: "GPT Image 2",
+        },
+      });
+
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toEqual({
+        success: true,
+        image: "data:image/png;base64,generatedImage",
+        contentType: "image",
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:8317/v1/images/generations",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer test-openai-key",
+          }),
+        })
+      );
+
+      const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(requestBody).toEqual({
+        model: "gpt-image-2",
+        prompt: "A bright workspace",
+        n: 1,
+        size: "1024x1024",
+        response_format: "b64_json",
+      });
+    });
+
+    it("should use image edits when image inputs are connected", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: [{ b64_json: "editedImage" }],
+        }),
+      });
+
+      const request = createMockPostRequest({
+        prompt: "",
+        selectedModel: {
+          provider: "openai",
+          modelId: "gpt-image-2",
+          displayName: "GPT Image 2",
+        },
+        dynamicInputs: {
+          prompt: "Turn this into a Scandinavian office",
+          images: [
+            "data:image/png;base64,firstImage",
+            "data:image/png;base64,secondImage",
+          ],
+        },
+      });
+
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toEqual({
+        success: true,
+        image: "data:image/png;base64,editedImage",
+        contentType: "image",
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:8317/v1/images/edits",
+        expect.any(Object)
+      );
+
+      const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(requestBody).toEqual({
+        model: "gpt-image-2",
+        prompt: "Turn this into a Scandinavian office",
+        images: [
+          { image_url: "data:image/png;base64,firstImage" },
+          { image_url: "data:image/png;base64,secondImage" },
+        ],
+        n: 1,
+        size: "1024x1024",
+        response_format: "b64_json",
+      });
     });
   });
 

@@ -561,7 +561,7 @@ export async function submitKieTask(
   requestId: string,
   apiKey: string,
   input: GenerationInput
-): Promise<{ taskId: string; isVeo: boolean }> {
+): Promise<{ taskId: string; isVeo: boolean; trace?: Record<string, unknown> }> {
   const modelId = input.model.id;
 
   console.log(`[API:${requestId}] Kie.ai generation - Model: ${modelId}, Images: ${input.images?.length || 0}, Prompt: ${input.prompt.length} chars`);
@@ -705,7 +705,17 @@ export async function submitKieTask(
     }
 
     console.log(`[API:${requestId}] Veo task created: ${taskId}`);
-    return { taskId, isVeo: true };
+    return {
+      taskId,
+      isVeo: true,
+      trace: {
+        endpoint: veoUrl,
+        taskId,
+        imageInputKey: "imageUrls",
+        inputParams,
+        requestBody: veoBody,
+      },
+    };
   }
 
   // ElevenLabs models use "text" instead of "prompt"
@@ -778,7 +788,17 @@ export async function submitKieTask(
   }
 
   console.log(`[API:${requestId}] Kie task created: ${taskId}`);
-  return { taskId, isVeo: false };
+  return {
+    taskId,
+    isVeo: false,
+    trace: {
+      endpoint: createUrl,
+      taskId,
+      imageInputKey: imageKey,
+      inputParams,
+      requestBody,
+    },
+  };
 }
 
 /**

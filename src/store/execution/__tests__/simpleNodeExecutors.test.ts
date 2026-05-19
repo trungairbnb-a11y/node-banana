@@ -244,6 +244,34 @@ describe("executePromptConstructor", () => {
     });
   });
 
+  it("should resolve inline LLM var tags without partial name collisions", async () => {
+    const pcNode = makeNode("pc", "promptConstructor", {
+      template: "First: @shot1\nTenth: @shot10",
+      outputText: null,
+      unresolvedVars: [],
+    });
+    const llmNode = makeNode("llm", "llmGenerate", {
+      outputText: '<var="shot1">wide shot</var><var="shot10">detail shot</var>',
+    });
+
+    const edges: WorkflowEdge[] = [
+      { id: "e1", source: "llm", target: "pc", sourceHandle: "text", targetHandle: "text" } as WorkflowEdge,
+    ];
+
+    const ctx = makeCtx(pcNode, {
+      getFreshNode: vi.fn().mockReturnValue(pcNode),
+      getEdges: vi.fn().mockReturnValue(edges),
+      getNodes: vi.fn().mockReturnValue([pcNode, llmNode]),
+    });
+
+    await executePromptConstructor(ctx);
+
+    expect(ctx.updateNodeData).toHaveBeenCalledWith("pc", {
+      outputText: "First: wide shot\nTenth: detail shot",
+      unresolvedVars: [],
+    });
+  });
+
   it("should use fresh node data", async () => {
     const staleNode = makeNode("pc", "promptConstructor", {
       template: "stale template",

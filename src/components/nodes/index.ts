@@ -21,4 +21,3 @@ export { VideoFrameGrabNode } from "./VideoFrameGrabNode";
 export { RouterNode } from "./RouterNode";
 export { SwitchNode } from "./SwitchNode";
 export { ConditionalSwitchNode } from "./ConditionalSwitchNode";
-export { GroupNode } from "./GroupNode";

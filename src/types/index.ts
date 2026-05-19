@@ -12,6 +12,7 @@ export * from "./providers";
 export * from "./models";
 export * from "./workflow";
 export * from "./api";
+export * from "./generationTrace";
 export * from "./quickstart";
 export * from "./chat";
 export * from "./canvas";

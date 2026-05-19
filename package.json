@@ -9,7 +9,8 @@
     "lint": "next lint",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:flow:live": "node tools/test-flow-modes.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.13",
@@ -33,6 +34,7 @@
     "react-markdown": "^10.1.0",
     "tailwindcss": "^4.1.17",
     "three": "^0.182.0",
+    "ws": "^8.20.1",
     "zustand": "^5.0.9"
   },
   "devDependencies": {

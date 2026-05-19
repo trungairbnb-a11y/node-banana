@@ -6,7 +6,7 @@
  */
 
 // Provider Types for multi-provider support (image/video generation)
-export type ProviderType = "gemini" | "openai" | "anthropic" | "replicate" | "fal" | "kie" | "wavespeed";
+export type ProviderType = "gemini" | "openai" | "ccs" | "anthropic" | "replicate" | "fal" | "kie" | "wavespeed" | "flow";
 
 // Model pricing info (stored when model is selected)
 export interface SelectedModelPricing {
@@ -36,7 +36,7 @@ export interface ProviderSettings {
 }
 
 // LLM Provider Options
-export type LLMProvider = "google" | "openai" | "anthropic";
+export type LLMProvider = "google" | "openai" | "ccs" | "anthropic";
 
 // LLM Model Options
 export type LLMModelType =
@@ -44,8 +44,17 @@ export type LLMModelType =
   | "gemini-3-flash-preview"
   | "gemini-3-pro-preview"
   | "gemini-3.1-pro-preview"
+  | "gemini-2.5-pro"
+  | "gemini-2.5-flash-lite"
+  | "gemini-3.1-flash-lite-preview"
   | "gpt-4.1-mini"
   | "gpt-4.1-nano"
+  | "gpt-5.5"
+  | "gpt-5.4"
+  | "gpt-5.4-mini"
+  | "gpt-5.3-codex"
+  | "gpt-5.3-codex-spark"
+  | "gpt-5.2"
   | "claude-opus-4.6"
   | "claude-sonnet-4.5"
   | "claude-haiku-4.5";

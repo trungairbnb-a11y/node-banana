@@ -21,7 +21,10 @@ export interface PollGenerateTaskOptions {
 const INITIAL_INTERVAL = 3000; // 3s
 const MAX_INTERVAL = 8000; // 8s
 const INTERVAL_STEP = 500; // grow by 500ms each poll
-const MAX_POLL_TIME = 10 * 60 * 1000; // 10 minutes
+const DEFAULT_MAX_POLL_TIME = 10 * 60 * 1000; // 10 minutes
+const PROVIDER_MAX_POLL_TIME: Record<string, number> = {
+  flow: 30 * 60 * 1000,
+};
 const MAX_CONSECUTIVE_ERRORS = 10;
 
 /**
@@ -34,13 +37,15 @@ export async function pollGenerateTask(
   const { taskId, provider, modelId, modelName, mediaType, headers, signal } = options;
 
   const startTime = Date.now();
+  const maxPollTime = PROVIDER_MAX_POLL_TIME[provider.toLowerCase()] ?? DEFAULT_MAX_POLL_TIME;
+  const maxPollMinutes = Math.round(maxPollTime / 60_000);
   let interval = INITIAL_INTERVAL;
   let consecutiveErrors = 0;
 
   while (true) {
     // Check client-side timeout
-    if (Date.now() - startTime > MAX_POLL_TIME) {
-      return { success: false, error: `${modelName}: Generation timed out after 10 minutes` };
+    if (Date.now() - startTime > maxPollTime) {
+      return { success: false, error: `${modelName}: Generation timed out after ${maxPollMinutes} minutes` };
     }
 
     // Check abort signal

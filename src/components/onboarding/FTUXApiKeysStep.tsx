@@ -80,21 +80,25 @@ export function FTUXApiKeysStep({}: FTUXStepProps) {
   const [showKey, setShowKey] = useState<Record<ProviderType, boolean>>({
     gemini: false,
     openai: false,
+    ccs: false,
     anthropic: false,
     replicate: false,
     fal: false,
     kie: false,
     wavespeed: false,
+    flow: false,
   });
   const [localKeys, setLocalKeys] = useState<Record<ProviderType, string>>(() => {
     const keys: Record<ProviderType, string> = {
       gemini: "",
       openai: "",
+      ccs: "",
       anthropic: "",
       replicate: "",
       fal: "",
       kie: "",
       wavespeed: "",
+      flow: "",
     };
     for (const id of Object.keys(keys) as ProviderType[]) {
       const saved = providerSettings.providers[id]?.apiKey;

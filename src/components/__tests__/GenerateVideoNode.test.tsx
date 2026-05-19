@@ -33,12 +33,14 @@ vi.mock("@/store/workflowStore", () => ({
     wavespeedApiKey: null,
     replicateEnabled: false,
     kieEnabled: false,
+    flowEnabled: true,
   }),
 }));
 
 // Mock useReactFlow
 const mockSetNodes = vi.fn();
 const mockScreenToFlowPosition = vi.fn((pos) => pos);
+const mockUpdateNodeInternals = vi.fn();
 
 vi.mock("@xyflow/react", async () => {
   const actual = await vi.importActual("@xyflow/react");
@@ -49,6 +51,7 @@ vi.mock("@xyflow/react", async () => {
       setNodes: mockSetNodes,
       screenToFlowPosition: mockScreenToFlowPosition,
     }),
+    useUpdateNodeInternals: () => mockUpdateNodeInternals,
   };
 });
 
@@ -84,10 +87,13 @@ const defaultProviderSettings: ProviderSettings = {
   providers: {
     gemini: { id: "gemini", name: "Gemini", enabled: true, apiKey: null, apiKeyEnvVar: "GEMINI_API_KEY" },
     openai: { id: "openai", name: "OpenAI", enabled: false, apiKey: null },
+    ccs: { id: "ccs", name: "CCS", enabled: false, apiKey: null },
+    anthropic: { id: "anthropic", name: "Anthropic", enabled: false, apiKey: null },
     replicate: { id: "replicate", name: "Replicate", enabled: false, apiKey: null },
     fal: { id: "fal", name: "fal.ai", enabled: true, apiKey: null },
     kie: { id: "kie", name: "Kie.ai", enabled: false, apiKey: null },
     wavespeed: { id: "wavespeed", name: "WaveSpeed", enabled: false, apiKey: null },
+    flow: { id: "flow", name: "Google Flow", enabled: true, apiKey: null },
   },
 };
 
@@ -124,6 +130,7 @@ describe("GenerateVideoNode", () => {
   });
 
   afterEach(() => {
+    localStorage.removeItem("node-banana-inline-parameters");
     vi.restoreAllMocks();
   });
 
@@ -143,6 +150,14 @@ describe("GenerateVideoNode", () => {
     type: "generateVideo" as const,
     data: createNodeData(data),
     selected: false,
+    draggable: true,
+    dragging: false,
+    selectable: true,
+    deletable: true,
+    zIndex: 0,
+    isConnectable: true,
+    positionAbsoluteX: 0,
+    positionAbsoluteY: 0,
   });
 
   describe("Basic Rendering", () => {
@@ -181,6 +196,77 @@ describe("GenerateVideoNode", () => {
       expect(screen.getByText("Image")).toBeInTheDocument();
       expect(screen.getByText("Prompt")).toBeInTheDocument();
       expect(screen.getByText("Video")).toBeInTheDocument();
+    });
+  });
+
+  describe("Dynamic Handles", () => {
+    it("shows a stable Flow mode selector and updates schema when changed", () => {
+      localStorage.setItem("node-banana-inline-parameters", "true");
+
+      render(
+        <TestWrapper>
+          <GenerateVideoNode {...createNodeProps({
+            selectedModel: {
+              provider: "flow",
+              modelId: "flow-veo-3.1/reference-video",
+              displayName: "Flow Reference Video",
+            },
+            parameters: { aspectRatio: "9:16" },
+            inputSchema: [
+              { name: "referenceImages", type: "image", required: true, label: "Refs", isArray: true },
+              { name: "prompt", type: "text", required: true, label: "Prompt" },
+            ],
+          })} />
+        </TestWrapper>
+      );
+
+      const select = screen.getByLabelText("Flow Mode");
+      expect(select).toBeInTheDocument();
+      expect(select).toHaveClass("min-w-0");
+
+      fireEvent.change(select, { target: { value: "flow-veo-3.1/start-image-video" } });
+
+      expect(mockUpdateNodeData).toHaveBeenCalledWith("test-node-1", expect.objectContaining({
+        selectedModel: {
+          provider: "flow",
+          modelId: "flow-veo-3.1/start-image-video",
+          displayName: "Flow Start Image Video",
+        },
+        parameters: { aspectRatio: "9:16" },
+        inputSchema: expect.arrayContaining([
+          expect.objectContaining({ name: "startImage", type: "image" }),
+          expect.objectContaining({ name: "prompt", type: "text" }),
+        ]),
+      }));
+    });
+
+    it("refreshes React Flow internals when input schema changes", () => {
+      const { rerender } = render(
+        <TestWrapper>
+          <GenerateVideoNode {...createNodeProps()} />
+        </TestWrapper>
+      );
+
+      mockUpdateNodeInternals.mockClear();
+
+      rerender(
+        <TestWrapper>
+          <GenerateVideoNode
+            {...createNodeProps({
+              selectedModel: {
+                provider: "flow",
+                modelId: "flow-veo-3.1/start-image-video",
+                displayName: "Flow Start Image Video",
+              },
+              inputSchema: [
+                { name: "prompt", type: "text", required: true, label: "Prompt" },
+              ],
+            })}
+          />
+        </TestWrapper>
+      );
+
+      expect(mockUpdateNodeInternals).toHaveBeenCalledWith("test-node-1");
     });
   });
 
@@ -461,7 +547,7 @@ describe("GenerateVideoNode", () => {
       expect(textHandle).toBeInTheDocument();
     });
 
-    it("should show placeholder handles when schema lacks image or text inputs", () => {
+    it("should not render unsupported placeholder handles when schema lacks image inputs", () => {
       const { container } = render(
         <TestWrapper>
           <GenerateVideoNode {...createNodeProps({
@@ -473,10 +559,9 @@ describe("GenerateVideoNode", () => {
         </TestWrapper>
       );
 
-      // Should still have both image and text handles (image as placeholder)
       const imageHandle = container.querySelector('[data-handletype="image"]');
       const textHandle = container.querySelector('[data-handletype="text"]');
-      expect(imageHandle).toBeInTheDocument();
+      expect(imageHandle).not.toBeInTheDocument();
       expect(textHandle).toBeInTheDocument();
     });
 
@@ -524,8 +609,8 @@ describe("GenerateVideoNode", () => {
       });
     });
 
-    describe("Placeholder Handles", () => {
-      it("should show dimmed image handle when video model only needs text", () => {
+    describe("Unsupported Handles", () => {
+      it("should skip image handle when video model only needs text", () => {
         const { container } = render(
           <TestWrapper>
             <GenerateVideoNode {...createNodeProps({
@@ -538,13 +623,11 @@ describe("GenerateVideoNode", () => {
           </TestWrapper>
         );
 
-        // Image handle should exist with dimmed opacity
         const imageHandle = container.querySelector('[data-handletype="image"]') as HTMLElement;
-        expect(imageHandle).toBeInTheDocument();
-        expect(imageHandle.style.opacity).toBe("0.3");
+        expect(imageHandle).not.toBeInTheDocument();
       });
 
-      it("should show dimmed text handle when video model only needs images", () => {
+      it("should skip text handle when video model only needs images", () => {
         const { container } = render(
           <TestWrapper>
             <GenerateVideoNode {...createNodeProps({
@@ -557,13 +640,11 @@ describe("GenerateVideoNode", () => {
           </TestWrapper>
         );
 
-        // Text handle should exist with dimmed opacity
         const textHandle = container.querySelector('[data-handletype="text"]') as HTMLElement;
-        expect(textHandle).toBeInTheDocument();
-        expect(textHandle.style.opacity).toBe("0.3");
+        expect(textHandle).not.toBeInTheDocument();
       });
 
-      it("should show 'Not used by this model' description for placeholder handles", () => {
+      it("should not register placeholder titles for unsupported handles", () => {
         const { container } = render(
           <TestWrapper>
             <GenerateVideoNode {...createNodeProps({
@@ -575,9 +656,8 @@ describe("GenerateVideoNode", () => {
           </TestWrapper>
         );
 
-        // Image handle should have the placeholder title
         const imageHandle = container.querySelector('[data-handletype="image"]');
-        expect(imageHandle).toHaveAttribute("title", "Not used by this model");
+        expect(imageHandle).not.toBeInTheDocument();
       });
     });
 

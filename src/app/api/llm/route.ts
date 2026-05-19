@@ -29,6 +29,14 @@ const ANTHROPIC_MODEL_MAP: Record<string, string> = {
   "claude-opus-4.6": "claude-opus-4-6",
 };
 
+function getCcsBaseUrl(): string {
+  const baseUrl = process.env.OPENAI_BASE_URL;
+  if (!baseUrl) {
+    throw new Error("OPENAI_BASE_URL not configured. Add the CCS proxy URL to .env.local.");
+  }
+  return baseUrl.replace(/\/+$/, "");
+}
+
 async function generateWithGoogle(
   prompt: string,
   model: LLMModelType,
@@ -197,6 +205,107 @@ async function generateWithOpenAI(
   return text;
 }
 
+async function generateWithCcs(
+  prompt: string,
+  model: LLMModelType,
+  temperature: number,
+  maxTokens: number,
+  images?: string[],
+  requestId?: string,
+  userApiKey?: string | null
+): Promise<string> {
+  const apiKey = userApiKey || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    logger.error('api.error', 'OPENAI_API_KEY not configured for CCS', { requestId });
+    throw new Error("OPENAI_API_KEY not configured for CCS. Add it to .env.local or configure OpenAI in Settings.");
+  }
+
+  const baseUrl = getCcsBaseUrl();
+
+  logger.info('api.llm', 'Calling CCS proxy', {
+    requestId,
+    model,
+    temperature,
+    maxTokens,
+    imageCount: images?.length || 0,
+    promptLength: prompt.length,
+    baseUrl,
+  });
+
+  let content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+  if (images && images.length > 0) {
+    content = [
+      { type: "text", text: prompt },
+      ...images.map((img) => ({
+        type: "image_url" as const,
+        image_url: { url: img },
+      })),
+    ];
+  } else {
+    content = prompt;
+  }
+
+  const startTime = Date.now();
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: "You are a text-only assistant. Always respond with plain text. Do not generate images, files, or other media.",
+        },
+        { role: "user", content },
+      ],
+      temperature,
+      max_tokens: maxTokens,
+    }),
+  });
+  const duration = Date.now() - startTime;
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    logger.error('api.error', 'CCS proxy request failed', {
+      requestId,
+      status: response.status,
+      error: error.error?.message,
+    });
+    throw new Error(error.error?.message || `CCS proxy error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const rawContent = data.choices?.[0]?.message?.content;
+  const text = typeof rawContent === "string"
+    ? rawContent
+    : Array.isArray(rawContent)
+      ? rawContent
+          .map((part) => typeof part?.text === "string" ? part.text : "")
+          .filter(Boolean)
+          .join("\n")
+      : "";
+
+  if (!text) {
+    logger.error('api.error', 'No text in CCS proxy response', {
+      requestId,
+      hasImages: Array.isArray(data.choices?.[0]?.message?.images) && data.choices[0].message.images.length > 0,
+      finishReason: data.choices?.[0]?.finish_reason,
+    });
+    throw new Error("No text in CCS proxy response");
+  }
+
+  logger.info('api.llm', 'CCS proxy response received', {
+    requestId,
+    duration,
+    responseLength: text.length,
+  });
+
+  return text;
+}
+
 async function generateWithAnthropic(
   prompt: string,
   model: LLMModelType,
@@ -333,6 +442,8 @@ export async function POST(request: NextRequest) {
       text = await generateWithGoogle(prompt, model, temperature, maxTokens, images, requestId, geminiApiKey);
     } else if (provider === "openai") {
       text = await generateWithOpenAI(prompt, model, temperature, maxTokens, images, requestId, openaiApiKey);
+    } else if (provider === "ccs") {
+      text = await generateWithCcs(prompt, model, temperature, maxTokens, images, requestId, openaiApiKey);
     } else if (provider === "anthropic") {
       text = await generateWithAnthropic(prompt, model, temperature, maxTokens, images, requestId, anthropicApiKey);
     } else {

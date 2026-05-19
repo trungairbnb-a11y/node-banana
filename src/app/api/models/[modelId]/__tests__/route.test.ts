@@ -842,4 +842,25 @@ describe("/api/models/[modelId] schema endpoint", () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("OpenAI schema", () => {
+    it("should expose optional image inputs for gpt-image-2", async () => {
+      const modelId = "gpt-image-2";
+      const request = createMockSchemaRequest(modelId, "openai");
+      const response = await GET(request, { params: Promise.resolve({ modelId }) });
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.inputs).toEqual([
+        {
+          name: "images",
+          type: "image",
+          required: false,
+          label: "Image",
+          isArray: true,
+        },
+      ]);
+    });
+  });
 });

@@ -62,6 +62,14 @@ function isHttpUrl(str: string): boolean {
 const KNOWN_3D_EXTENSIONS = new Set(["glb", "gltf", "obj", "fbx", "usdz", "stl", "ply"]);
 const KNOWN_MEDIA_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "mp4", "webm", "mov"]);
 
+function isWindowsPath(inputPath: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(inputPath) || inputPath.startsWith("\\\\");
+}
+
+function getPathImplementation(inputPath: string): path.PlatformPath {
+  return isWindowsPath(inputPath) ? path.win32 : path.posix;
+}
+
 // Helper to extract a recognized file extension from a URL pathname
 export function getExtensionFromUrl(url: string): string | null {
   try {
@@ -86,14 +94,15 @@ function computeContentHash(buffer: Buffer): string {
 async function findExistingFileByHash(
   directoryPath: string,
   hash: string,
-  extension: string
+  extension: string,
+  pathImpl: path.PlatformPath
 ): Promise<string | null> {
   try {
     const files = await fs.readdir(directoryPath);
     // Look for files ending with this hash before extension
     const hashSuffix = `_${hash}.${extension}`;
     const matching = files.find((f) => f.endsWith(hashSuffix));
-    return matching || null;
+    return matching ? pathImpl.basename(matching) : null;
   } catch {
     return null;
   }
@@ -139,6 +148,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const pathImpl = getPathImplementation(directoryPath);
 
     // Validate directory exists (or create if requested)
     try {
@@ -266,9 +276,9 @@ export async function POST(request: NextRequest) {
     const contentHash = computeContentHash(buffer);
 
     // Check for existing file with same hash (deduplication)
-    const existingFile = await findExistingFileByHash(directoryPath, contentHash, extension);
+    const existingFile = await findExistingFileByHash(directoryPath, contentHash, extension, pathImpl);
     if (existingFile) {
-      const existingPath = path.join(directoryPath, existingFile);
+      const existingPath = pathImpl.join(directoryPath, existingFile);
       logger.info('file.save', 'Generation deduplicated: existing file found', {
         contentHash,
         existingFile,
@@ -304,7 +314,7 @@ export async function POST(request: NextRequest) {
         : "generation";
       filename = `${promptSnippet}_${contentHash}.${extension}`;
     }
-    const filePath = path.join(directoryPath, filename);
+    const filePath = pathImpl.join(directoryPath, filename);
 
     // Write the file
     await fs.writeFile(filePath, buffer);

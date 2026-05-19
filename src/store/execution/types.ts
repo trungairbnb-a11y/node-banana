@@ -24,6 +24,7 @@ import type { ConnectedInputs } from "@/store/utils/connectedInputs";
  * - `getEdges`: Returns current edges from the store.
  * - `getNodes`: Returns current nodes from the store.
  * - `signal`: AbortSignal for cancellable fetch calls (only present in executeWorkflow).
+ * - `maxConcurrentCalls`: User-configured parallelism cap from Settings.
  * - `providerSettings`: API key settings for providers.
  * - `addIncurredCost`: Tracks cost for billing.
  * - `addToGlobalHistory`: Adds image to the global generation history.
@@ -40,7 +41,10 @@ export interface NodeExecutionContext {
   getEdges: () => WorkflowEdge[];
   getNodes: () => WorkflowNode[];
   signal?: AbortSignal;
+  maxConcurrentCalls?: number;
   providerSettings: ProviderSettings;
+  workflowId?: string | null;
+  workflowName?: string | null;
   addIncurredCost: (cost: number) => void;
   addToGlobalHistory: (item: Omit<ImageHistoryItem, "id">) => void;
   generationsPath: string | null;

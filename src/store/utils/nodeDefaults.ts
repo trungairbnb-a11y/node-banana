@@ -31,6 +31,12 @@ import {
 } from "@/types";
 import { loadGenerateImageDefaults, loadNodeDefaults } from "./localStorage";
 
+const DEFAULT_FLOW_VIDEO_MODEL: SelectedModel = {
+  provider: "flow",
+  modelId: "flow-veo-3.1/reference-video",
+  displayName: "Flow Reference Video",
+};
+
 /**
  * Default dimensions for each node type.
  * Used in addNode and createGroup for consistent sizing.
@@ -180,9 +186,10 @@ export const createDefaultNodeData = (type: NodeType): WorkflowNodeData => {
       const nodeDefaults = loadNodeDefaults();
       return {
         inputImages: [],
+        inputVideos: [],
         inputPrompt: null,
         outputVideo: null,
-        selectedModel: nodeDefaults.generateVideo?.selectedModel,
+        selectedModel: nodeDefaults.generateVideo?.selectedModel ?? DEFAULT_FLOW_VIDEO_MODEL,
         status: "idle",
         error: null,
         videoHistory: [],
