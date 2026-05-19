@@ -30,6 +30,7 @@ import {
   MatchMode,
 } from "@/types";
 import { parseVarTags } from "@/utils/parseVarTags";
+import { getBlueprintOutput } from "@/lib/nodeRegistry";
 
 /**
  * Return type for getConnectedInputs
@@ -53,6 +54,7 @@ function isImageHandle(handleId: string | null | undefined): boolean {
   const normalized = handleId.toLowerCase();
   return (
     normalized === "image" ||
+    normalized === "mask" ||
     normalized === "reference" ||
     normalized === "ref" ||
     normalized.startsWith("image-") ||
@@ -150,6 +152,10 @@ export function getSourceOutput(
     return { type: "image", value: (sourceNode.data as VideoFrameGrabNodeData).outputImage };
   } else if (sourceNode.type === "glbViewer") {
     return { type: "image", value: (sourceNode.data as GLBViewerNodeData).capturedImage };
+  }
+  const blueprintOutput = getBlueprintOutput(sourceNode, sourceHandle);
+  if (blueprintOutput) {
+    return blueprintOutput;
   }
   return { type: "image", value: null };
 }

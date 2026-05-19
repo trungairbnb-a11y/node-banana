@@ -48,6 +48,8 @@ export function AudioInputNode({ id, data, selected }: NodeProps<AudioInputNodeT
     waveformData,
     isLoadingWaveform: isLoading,
   });
+  const safeCurrentTime = Number.isFinite(currentTime) ? currentTime : 0;
+  const safeAudioDuration = Number.isFinite(audioRef.current?.duration) && audioRef.current ? audioRef.current.duration : 0;
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -75,7 +77,7 @@ export function AudioInputNode({ id, data, selected }: NodeProps<AudioInputNodeT
             audioFile: base64,
             filename: file.name,
             format: file.type,
-            duration: audio.duration,
+            duration: Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : null,
           });
         };
         audio.onerror = () => {
@@ -157,7 +159,7 @@ export function AudioInputNode({ id, data, selected }: NodeProps<AudioInputNodeT
             <span className="text-[10px] text-neutral-400 truncate max-w-[150px]" title={nodeData.filename || ""}>
               {nodeData.filename}
             </span>
-            {nodeData.duration && (
+            {typeof nodeData.duration === "number" && Number.isFinite(nodeData.duration) && nodeData.duration > 0 && (
               <span className="text-[10px] text-neutral-500 bg-neutral-700/50 px-1.5 py-0.5 rounded">
                 {formatTime(nodeData.duration)}
               </span>
@@ -203,17 +205,17 @@ export function AudioInputNode({ id, data, selected }: NodeProps<AudioInputNodeT
 
             {/* Progress bar / scrubber */}
             <div className="flex-1 h-1 bg-neutral-700 rounded-full overflow-hidden relative">
-              {audioRef.current?.duration && isFinite(audioRef.current.duration) && (
+              {safeAudioDuration > 0 && (
                 <div
                   className="h-full bg-violet-500 transition-all"
-                  style={{ width: `${(currentTime / audioRef.current.duration) * 100}%` }}
+                  style={{ width: `${(safeCurrentTime / safeAudioDuration) * 100}%` }}
                 />
               )}
             </div>
 
             {/* Current time */}
             <span className="text-[10px] text-neutral-500 min-w-[32px] text-right">
-              {formatTime(currentTime)}
+              {formatTime(safeCurrentTime)}
             </span>
           </div>
 

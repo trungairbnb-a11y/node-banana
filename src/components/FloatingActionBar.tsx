@@ -7,64 +7,10 @@ import { NodeType } from "@/types";
 import { useReactFlow } from "@xyflow/react";
 import { ModelSearchDialog } from "./modals/ModelSearchDialog";
 import { useFTUXStore, TutorialStep } from "@/store/ftuxStore";
+import { getBlueprintMenuCategories } from "@/lib/nodeRegistry";
 
 // All nodes menu categories
-const ALL_NODES_CATEGORIES: { label: string; nodes: { type: NodeType; label: string }[] }[] = [
-  {
-    label: "Input",
-    nodes: [
-      { type: "imageInput", label: "Image Input" },
-      { type: "audioInput", label: "Audio Input" },
-      { type: "videoInput", label: "Video Input" },
-      { type: "glbViewer", label: "3D Viewer" },
-    ],
-  },
-  {
-    label: "Text",
-    nodes: [
-      { type: "prompt", label: "Prompt" },
-      { type: "promptConstructor", label: "Prompt Constructor" },
-      { type: "array", label: "Array" },
-    ],
-  },
-  {
-    label: "Generate",
-    nodes: [
-      { type: "nanoBanana", label: "Generate Image" },
-      { type: "generateVideo", label: "Generate Video" },
-      { type: "generate3d", label: "Generate 3D" },
-      { type: "generateAudio", label: "Generate Audio" },
-      { type: "llmGenerate", label: "LLM Generate" },
-    ],
-  },
-  {
-    label: "Process",
-    nodes: [
-      { type: "annotation", label: "Annotate" },
-      { type: "splitGrid", label: "Split Grid" },
-      { type: "videoStitch", label: "Video Stitch" },
-      { type: "videoTrim", label: "Video Trim" },
-      { type: "easeCurve", label: "Ease Curve" },
-      { type: "videoFrameGrab", label: "Frame Grab" },
-      { type: "imageCompare", label: "Image Compare" },
-    ],
-  },
-  {
-    label: "Route",
-    nodes: [
-      { type: "router", label: "Router" },
-      { type: "switch", label: "Switch" },
-      { type: "conditionalSwitch", label: "Conditional Switch" },
-    ],
-  },
-  {
-    label: "Output",
-    nodes: [
-      { type: "output", label: "Output" },
-      { type: "outputGallery", label: "Output Gallery" },
-    ],
-  },
-];
+const ALL_NODES_CATEGORIES: { label: string; nodes: { type: NodeType; label: string }[] }[] = getBlueprintMenuCategories();
 
 // Get the center of the React Flow pane in screen coordinates
 function getPaneCenter() {

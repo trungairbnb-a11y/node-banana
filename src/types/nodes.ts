@@ -47,7 +47,24 @@ export type NodeType =
   | "switch"
   | "conditionalSwitch"
   | "generate3d"
-  | "glbViewer";
+  | "glbViewer"
+  | "textSplitter"
+  | "maskPainter"
+  | "loadLora"
+  | "blur"
+  | "reformat"
+  | "crop"
+  | "compositor"
+  | "colorCorrection"
+  | "forEachStart"
+  | "forEachEnd"
+  | "actionDirector"
+  | "urlSpawner"
+  | "mediaDownload"
+  | "videoMaskOverlay"
+  | "extractFrameCustom"
+  | "frameComposer"
+  | "audioEnvironment";
 
 /**
  * Node execution status
@@ -500,6 +517,167 @@ export interface GLBViewerNodeData extends BaseNodeData {
 }
 
 /**
+ * Shared utility node data for X-Node style local processors.
+ */
+export interface UtilityNodeData extends BaseNodeData {
+  status: NodeStatus;
+  error: string | null;
+  progress?: number;
+  sourceImage?: string | null;
+  secondaryImage?: string | null;
+  maskImage?: string | null;
+  sourceVideo?: string | null;
+  maskVideo?: string | null;
+  sourceAudio?: string | null;
+  inputText?: string | null;
+  inputUrl?: string;
+  outputImage?: string | null;
+  outputVideo?: string | null;
+  outputAudio?: string | null;
+  outputText?: string | null;
+  outputItems?: string[];
+  outputJson?: string | null;
+  outputLora?: string | null;
+  outputKind?: "image" | "video" | "audio" | "text" | "json" | "lora" | null;
+}
+
+export interface TextSplitterNodeData extends UtilityNodeData {
+  inputText: string | null;
+  delimiter: string;
+  trimItems: boolean;
+  removeEmpty: boolean;
+  maxOutputs: number;
+  outputItems: string[];
+  outputText: string | null;
+}
+
+export interface MaskPainterNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  outputImage: string | null;
+  brushSize: number;
+  mode: "paint" | "erase";
+}
+
+export interface LoadLoraNodeData extends UtilityNodeData {
+  path: string;
+  scale: number;
+  outputLora: string | null;
+}
+
+export interface BlurNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  maskImage: string | null;
+  outputImage: string | null;
+  radius: number;
+}
+
+export interface ReformatNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  outputImage: string | null;
+  width: number;
+  height: number;
+  mode: "contain" | "cover" | "stretch";
+  background: string;
+}
+
+export interface CropNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  outputImage: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+}
+
+export interface CompositorNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  secondaryImage: string | null;
+  maskImage: string | null;
+  outputImage: string | null;
+  blendMode: GlobalCompositeOperation;
+  opacity: number;
+}
+
+export interface ColorCorrectionNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  maskImage: string | null;
+  outputImage: string | null;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  grayscale: number;
+}
+
+export interface ForEachStartNodeData extends UtilityNodeData {
+  inputText: string | null;
+  currentIndex: number;
+  outputText: string | null;
+  outputItems: string[];
+}
+
+export interface ForEachEndNodeData extends UtilityNodeData {
+  outputImage: string | null;
+  outputVideo: string | null;
+  outputAudio: string | null;
+  outputText: string | null;
+  outputJson: string | null;
+}
+
+export interface ActionDirectorNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  sourceVideo: string | null;
+  outputImage: string | null;
+  outputVideo: string | null;
+  mode: "pose" | "depth" | "canny" | "normal" | "shaded" | "alpha";
+}
+
+export interface UrlSpawnerNodeData extends UtilityNodeData {
+  urls: string;
+  lastSpawnedCount: number;
+}
+
+export interface MediaDownloadNodeData extends UtilityNodeData {
+  inputUrl: string;
+  format: "video" | "audio";
+  quality: "best" | "medium" | "low";
+  outputVideo: string | null;
+  outputAudio: string | null;
+}
+
+export interface VideoMaskOverlayNodeData extends UtilityNodeData {
+  sourceVideo: string | null;
+  maskVideo: string | null;
+  outputVideo: string | null;
+}
+
+export interface ExtractFrameCustomNodeData extends UtilityNodeData {
+  sourceVideo: string | null;
+  outputImage: string | null;
+  frameTime: number;
+  frameIndex: number;
+  fps: number;
+}
+
+export interface FrameComposerNodeData extends UtilityNodeData {
+  sourceVideo: string | null;
+  outputVideo: string | null;
+  referenceImages: string[];
+  referenceOpacity: number;
+}
+
+export interface AudioEnvironmentNodeData extends UtilityNodeData {
+  sourceAudio: string | null;
+  outputAudio: string | null;
+  bass: number;
+  mid: number;
+  treble: number;
+  gain: number;
+  bypass: boolean;
+}
+
+/**
  * Union of all node data types
  */
 export type WorkflowNodeData =
@@ -526,7 +704,24 @@ export type WorkflowNodeData =
   | RouterNodeData
   | SwitchNodeData
   | ConditionalSwitchNodeData
-  | GLBViewerNodeData;
+  | GLBViewerNodeData
+  | TextSplitterNodeData
+  | MaskPainterNodeData
+  | LoadLoraNodeData
+  | BlurNodeData
+  | ReformatNodeData
+  | CropNodeData
+  | CompositorNodeData
+  | ColorCorrectionNodeData
+  | ForEachStartNodeData
+  | ForEachEndNodeData
+  | ActionDirectorNodeData
+  | UrlSpawnerNodeData
+  | MediaDownloadNodeData
+  | VideoMaskOverlayNodeData
+  | ExtractFrameCustomNodeData
+  | FrameComposerNodeData
+  | AudioEnvironmentNodeData;
 
 /**
  * Workflow node with typed data (extended with optional groupId)

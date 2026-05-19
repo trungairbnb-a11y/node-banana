@@ -46,6 +46,7 @@ import {
   RouterNode,
   SwitchNode,
   ConditionalSwitchNode,
+  UtilityNode,
 } from "./nodes";
 
 // Lazy-load GLBViewerNode to avoid bundling three.js for users who don't use 3D nodes
@@ -84,6 +85,7 @@ import { useAnnotationStore } from "@/store/annotationStore";
 import { TutorialOverlay } from "./onboarding/TutorialOverlay";
 import { useFTUXStore } from "@/store/ftuxStore";
 import { fetchModelRetargetEnvStatus, scanWorkflowForModelRetargets } from "@/lib/modelRetargeting";
+import { getBlueprintHandles } from "@/lib/nodeRegistry";
 
 const nodeTypes: NodeTypes = {
   imageInput: ImageInputNode,
@@ -110,6 +112,23 @@ const nodeTypes: NodeTypes = {
   switch: SwitchNode,
   conditionalSwitch: ConditionalSwitchNode,
   glbViewer: GLBViewerNode,
+  textSplitter: UtilityNode,
+  maskPainter: UtilityNode,
+  loadLora: UtilityNode,
+  blur: UtilityNode,
+  reformat: UtilityNode,
+  crop: UtilityNode,
+  compositor: UtilityNode,
+  colorCorrection: UtilityNode,
+  forEachStart: UtilityNode,
+  forEachEnd: UtilityNode,
+  actionDirector: UtilityNode,
+  urlSpawner: UtilityNode,
+  mediaDownload: UtilityNode,
+  videoMaskOverlay: UtilityNode,
+  extractFrameCustom: UtilityNode,
+  frameComposer: UtilityNode,
+  audioEnvironment: UtilityNode,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -131,6 +150,8 @@ const getHandleType = (handleId: string | null | undefined): "image" | "text" | 
   if (handleId === "easeCurve") return "easeCurve";
   // 3D handles
   if (handleId === "3d") return "3d";
+  if (handleId === "mask") return "image";
+  if (handleId === "lora") return "text";
   // Standard handles
   if (handleId === "video") return "video";
   if (handleId === "audio" || handleId.startsWith("audio")) return "audio";
@@ -197,7 +218,7 @@ const getNodeHandles = (nodeType: string): { inputs: string[]; outputs: string[]
     case "glbViewer":
       return { inputs: ["3d"], outputs: ["image"] };
     default:
-      return { inputs: [], outputs: [] };
+      return getBlueprintHandles(nodeType);
   }
 };
 
@@ -630,7 +651,7 @@ export function WorkflowCanvas() {
         if (!targetNode) return false;
 
         const targetNodeType = targetNode.type;
-        if (targetNodeType === "generateVideo" || targetNodeType === "videoStitch" || targetNodeType === "easeCurve" || targetNodeType === "videoTrim" || targetNodeType === "videoFrameGrab" || targetNodeType === "videoInput" || targetNodeType === "output" || targetNodeType === "outputGallery" || targetNodeType === "router") {
+        if (targetNodeType === "generateVideo" || targetNodeType === "videoStitch" || targetNodeType === "easeCurve" || targetNodeType === "videoTrim" || targetNodeType === "videoFrameGrab" || targetNodeType === "videoInput" || targetNodeType === "output" || targetNodeType === "outputGallery" || targetNodeType === "router" || targetNodeType === "videoMaskOverlay" || targetNodeType === "extractFrameCustom" || targetNodeType === "frameComposer" || targetNodeType === "actionDirector") {
           // For output node, we allow video even though its handle is typed as "image"
           // because output node can display both images and videos
           return true;
@@ -1607,33 +1628,7 @@ export function WorkflowCanvas() {
           event.preventDefault();
           const { centerX, centerY } = getViewportCenter();
           // Offset by half the default node dimensions to center it
-          const defaultDimensions: Record<NodeType, { width: number; height: number }> = {
-            imageInput: { width: 300, height: 280 },
-            audioInput: { width: 300, height: 200 },
-            videoInput: { width: 300, height: 280 },
-            annotation: { width: 300, height: 280 },
-            prompt: { width: 320, height: 220 },
-            array: { width: 360, height: 360 },
-            promptConstructor: { width: 340, height: 280 },
-            nanoBanana: { width: 300, height: 300 },
-            generateVideo: { width: 300, height: 300 },
-            generate3d: { width: 300, height: 300 },
-            generateAudio: { width: 300, height: 280 },
-            llmGenerate: { width: 320, height: 360 },
-            splitGrid: { width: 300, height: 320 },
-            output: { width: 320, height: 320 },
-            outputGallery: { width: 320, height: 360 },
-            imageCompare: { width: 400, height: 360 },
-            videoStitch: { width: 400, height: 280 },
-            easeCurve: { width: 340, height: 480 },
-            videoTrim: { width: 360, height: 360 },
-            videoFrameGrab: { width: 320, height: 320 },
-            router: { width: 200, height: 80 },
-            switch: { width: 220, height: 120 },
-            conditionalSwitch: { width: 260, height: 180 },
-            glbViewer: { width: 360, height: 380 },
-          };
-          const dims = defaultDimensions[nodeType];
+          const dims = defaultNodeDimensions[nodeType];
           addNode(nodeType, { x: centerX - dims.width / 2, y: centerY - dims.height / 2 });
           return;
         }

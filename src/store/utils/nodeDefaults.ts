@@ -24,6 +24,23 @@ import {
   SwitchNodeData,
   ConditionalSwitchNodeData,
   GLBViewerNodeData,
+  TextSplitterNodeData,
+  MaskPainterNodeData,
+  LoadLoraNodeData,
+  BlurNodeData,
+  ReformatNodeData,
+  CropNodeData,
+  CompositorNodeData,
+  ColorCorrectionNodeData,
+  ForEachStartNodeData,
+  ForEachEndNodeData,
+  ActionDirectorNodeData,
+  UrlSpawnerNodeData,
+  MediaDownloadNodeData,
+  VideoMaskOverlayNodeData,
+  ExtractFrameCustomNodeData,
+  FrameComposerNodeData,
+  AudioEnvironmentNodeData,
   WorkflowNodeData,
   GroupColor,
   SelectedModel,
@@ -66,6 +83,23 @@ export const defaultNodeDimensions: Record<NodeType, { width: number; height: nu
   switch: { width: 220, height: 120 },
   conditionalSwitch: { width: 260, height: 180 },
   glbViewer: { width: 360, height: 380 },
+  textSplitter: { width: 300, height: 280 },
+  maskPainter: { width: 340, height: 420 },
+  loadLora: { width: 280, height: 190 },
+  blur: { width: 300, height: 340 },
+  reformat: { width: 300, height: 380 },
+  crop: { width: 300, height: 390 },
+  compositor: { width: 320, height: 420 },
+  colorCorrection: { width: 320, height: 460 },
+  forEachStart: { width: 300, height: 250 },
+  forEachEnd: { width: 300, height: 260 },
+  actionDirector: { width: 360, height: 460 },
+  urlSpawner: { width: 340, height: 380 },
+  mediaDownload: { width: 320, height: 320 },
+  videoMaskOverlay: { width: 320, height: 420 },
+  extractFrameCustom: { width: 320, height: 420 },
+  frameComposer: { width: 340, height: 440 },
+  audioEnvironment: { width: 320, height: 390 },
 };
 
 /**
@@ -341,5 +375,191 @@ export const createDefaultNodeData = (type: NodeType): WorkflowNodeData => {
         filename: null,
         capturedImage: null,
       } as GLBViewerNodeData;
+    case "textSplitter":
+      return {
+        inputText: null,
+        delimiter: "\n",
+        trimItems: true,
+        removeEmpty: true,
+        maxOutputs: 10,
+        outputItems: [],
+        outputText: null,
+        status: "idle",
+        error: null,
+        outputKind: "text",
+      } as TextSplitterNodeData;
+    case "maskPainter":
+      return {
+        sourceImage: null,
+        outputImage: null,
+        brushSize: 28,
+        mode: "paint",
+        status: "idle",
+        error: null,
+        outputKind: "image",
+      } as MaskPainterNodeData;
+    case "loadLora":
+      return {
+        path: "",
+        scale: 1,
+        outputLora: null,
+        status: "idle",
+        error: null,
+        outputKind: "lora",
+      } as LoadLoraNodeData;
+    case "blur":
+      return {
+        sourceImage: null,
+        maskImage: null,
+        outputImage: null,
+        radius: 12,
+        status: "idle",
+        error: null,
+        outputKind: "image",
+      } as BlurNodeData;
+    case "reformat":
+      return {
+        sourceImage: null,
+        outputImage: null,
+        width: 1024,
+        height: 1024,
+        mode: "contain",
+        background: "#000000",
+        status: "idle",
+        error: null,
+        outputKind: "image",
+      } as ReformatNodeData;
+    case "crop":
+      return {
+        sourceImage: null,
+        outputImage: null,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        flipHorizontal: false,
+        flipVertical: false,
+        status: "idle",
+        error: null,
+        outputKind: "image",
+      } as CropNodeData;
+    case "compositor":
+      return {
+        sourceImage: null,
+        secondaryImage: null,
+        maskImage: null,
+        outputImage: null,
+        blendMode: "source-over",
+        opacity: 0.75,
+        status: "idle",
+        error: null,
+        outputKind: "image",
+      } as CompositorNodeData;
+    case "colorCorrection":
+      return {
+        sourceImage: null,
+        maskImage: null,
+        outputImage: null,
+        brightness: 100,
+        contrast: 100,
+        saturation: 100,
+        grayscale: 0,
+        status: "idle",
+        error: null,
+        outputKind: "image",
+      } as ColorCorrectionNodeData;
+    case "forEachStart":
+      return {
+        inputText: null,
+        currentIndex: 0,
+        outputText: null,
+        outputItems: [],
+        status: "idle",
+        error: null,
+        outputKind: "text",
+      } as ForEachStartNodeData;
+    case "forEachEnd":
+      return {
+        outputImage: null,
+        outputVideo: null,
+        outputAudio: null,
+        outputText: null,
+        outputJson: null,
+        status: "idle",
+        error: null,
+        outputKind: "json",
+      } as ForEachEndNodeData;
+    case "actionDirector":
+      return {
+        sourceImage: null,
+        sourceVideo: null,
+        outputImage: null,
+        outputVideo: null,
+        mode: "canny",
+        status: "idle",
+        error: null,
+        outputKind: "image",
+      } as ActionDirectorNodeData;
+    case "urlSpawner":
+      return {
+        urls: "",
+        lastSpawnedCount: 0,
+        status: "idle",
+        error: null,
+      } as UrlSpawnerNodeData;
+    case "mediaDownload":
+      return {
+        inputUrl: "",
+        format: "video",
+        quality: "best",
+        outputVideo: null,
+        outputAudio: null,
+        status: "idle",
+        error: null,
+        outputKind: "video",
+      } as MediaDownloadNodeData;
+    case "videoMaskOverlay":
+      return {
+        sourceVideo: null,
+        maskVideo: null,
+        outputVideo: null,
+        status: "idle",
+        error: null,
+        outputKind: "video",
+      } as VideoMaskOverlayNodeData;
+    case "extractFrameCustom":
+      return {
+        sourceVideo: null,
+        outputImage: null,
+        frameTime: 0,
+        frameIndex: 0,
+        fps: 30,
+        status: "idle",
+        error: null,
+        outputKind: "image",
+      } as ExtractFrameCustomNodeData;
+    case "frameComposer":
+      return {
+        sourceVideo: null,
+        outputVideo: null,
+        referenceImages: [],
+        referenceOpacity: 0.35,
+        status: "idle",
+        error: null,
+        outputKind: "video",
+      } as FrameComposerNodeData;
+    case "audioEnvironment":
+      return {
+        sourceAudio: null,
+        outputAudio: null,
+        bass: 0,
+        mid: 0,
+        treble: 0,
+        gain: 1,
+        bypass: false,
+        status: "idle",
+        error: null,
+        outputKind: "audio",
+      } as AudioEnvironmentNodeData;
   }
 };

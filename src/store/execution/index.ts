@@ -46,4 +46,9 @@ export {
   executeVideoFrameGrab,
 } from "./videoProcessingExecutors";
 
+export {
+  executeRegisteredUtilityNode,
+  getUtilityExecutor,
+} from "./utilityExecutors";
+
 export { runBatchIfApplicable } from "./batchExecution";
