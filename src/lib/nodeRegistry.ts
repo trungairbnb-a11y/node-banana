@@ -162,7 +162,10 @@ const utilityBlueprints: Array<Omit<NodeBlueprint, "dimensions" | "createData">>
   { type: "colorCorrection", label: "Color Correction", category: "Utility", handles: { inputs: ["image", "mask"], outputs: ["image"] }, getOutput: fieldOutput("outputImage", "image"), canExecute: true },
   { type: "forEachStart", label: "For Each Start", category: "Utility", handles: { inputs: ["text", "image", "video", "audio"], outputs: ["text", "image", "video", "audio"] }, getOutput: indexedTextOutput, canExecute: true },
   { type: "forEachEnd", label: "For Each End", category: "Utility", handles: { inputs: ["text", "image", "video", "audio"], outputs: ["text"] }, getOutput: fieldOutput("outputJson", "text"), canExecute: true },
-  { type: "actionDirector", label: "Action Director", category: "Utility", handles: { inputs: ["image", "video"], outputs: ["openPose", "depth", "canny", "normal", "shaded", "alpha"] }, getOutput: (node) => fieldOutput(typeof data(node).outputImage === "string" ? "outputImage" : "outputVideo", typeof data(node).outputImage === "string" ? "image" : "video")(node), canExecute: true },
+  { type: "actionDirector", label: "Action Director", category: "Utility", handles: { inputs: ["image", "video"], outputs: ["openPose", "depth", "canny", "normal", "shaded", "alpha", "video-openPose", "video-depth", "video-canny", "video-normal", "video-shaded", "video-alpha"] }, getOutput: (node, sourceHandle) => {
+    if (sourceHandle?.startsWith("video-")) return fieldOutput("outputVideo", "video")(node);
+    return fieldOutput("outputImage", "image")(node);
+  }, canExecute: true },
   { type: "urlSpawner", label: "URL Spawner", category: "Utility", handles: { inputs: [], outputs: [] } },
   { type: "mediaDownload", label: "Media Download", category: "Utility", handles: { inputs: ["text"], outputs: ["video", "audio"] }, getOutput: (node) => {
     const d = data(node);

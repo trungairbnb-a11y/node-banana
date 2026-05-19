@@ -565,6 +565,7 @@ export interface UtilityNodeData extends BaseNodeData {
   blueGain?: number;
   keepAspectRatio?: boolean;
   scaleBy?: "width" | "height";
+  ease?: string;
   characters?: Array<{ id: string; name: string }>;
   clips?: Array<{ id: string; url: string }>;
 }
@@ -673,6 +674,7 @@ export interface ActionDirectorNodeData extends UtilityNodeData {
   preset?: string;
   width?: number;
   height?: number;
+  ease?: string;
   characters?: Array<{ id: string; name: string }>;
   clips?: Array<{ id: string; url: string }>;
 }

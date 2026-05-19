@@ -17,7 +17,9 @@ const IMAGE_TYPES = new Set(["maskPainter", "blur", "reformat", "crop", "composi
 const VIDEO_TYPES = new Set(["videoMaskOverlay", "extractFrameCustom", "frameComposer", "actionDirector"]);
 const AUDIO_TYPES = new Set(["audioEnvironment"]);
 const TEXT_TYPES = new Set(["textSplitter", "forEachStart", "mediaDownload"]);
-const ACTION_OUTPUTS = new Set(["openPose", "depth", "canny", "normal", "shaded", "alpha"]);
+const ACTION_IMAGE_OUTPUTS = ["openPose", "depth", "canny", "normal", "shaded", "alpha"] as const;
+const ACTION_VIDEO_OUTPUTS = ACTION_IMAGE_OUTPUTS.map((handle) => `video-${handle}`);
+const ACTION_OUTPUTS = new Set<string>([...ACTION_IMAGE_OUTPUTS, ...ACTION_VIDEO_OUTPUTS]);
 
 const REFORMAT_PRESETS = [
   { label: "512 x 512 - Square SM", width: 512, height: 512 },
@@ -42,6 +44,7 @@ const ACTION_PRESETS = [
 ];
 
 function handleKind(handleId: string): HandleType | "reference" | null {
+  if (handleId.startsWith("video-")) return "video";
   if (handleId === "mask" || ACTION_OUTPUTS.has(handleId)) return "image";
   if (handleId === "lora") return "text";
   if (handleId === "reference") return "reference";
@@ -53,6 +56,7 @@ function handleKind(handleId: string): HandleType | "reference" | null {
 }
 
 function handleColor(handleId: string): string {
+  if (handleId.startsWith("video-")) return "var(--handle-color-video)";
   const kind = handleKind(handleId);
   if (kind === "image") return "var(--handle-color-image)";
   if (kind === "video") return "var(--handle-color-video)";
@@ -62,6 +66,7 @@ function handleColor(handleId: string): string {
 }
 
 function handleLabel(handleId: string): string {
+  const normalizedHandleId = handleId.startsWith("video-") ? handleId.slice("video-".length) : handleId;
   const labels: Record<string, string> = {
     image: "Image",
     "image-1": "Image B",
@@ -78,9 +83,9 @@ function handleLabel(handleId: string): string {
     shaded: "Shaded",
     alpha: "Alpha",
   };
-  if (labels[handleId]) return labels[handleId];
+  if (labels[normalizedHandleId]) return labels[normalizedHandleId];
   if (handleId.startsWith("text-")) return handleId.replace("text-", "Text ");
-  return handleId.replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return normalizedHandleId.replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function filenameFromUrl(url: string): string {
@@ -176,6 +181,26 @@ function NumberInput({
   );
 }
 
+function ActionNumberInput({
+  value,
+  min,
+  onChange,
+}: {
+  value: number;
+  min?: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <input
+      type="number"
+      value={Number.isFinite(value) ? value : 0}
+      min={min}
+      onChange={(event) => onChange(Number(event.target.value))}
+      className="nodrag nopan h-5 w-full rounded-sm border border-neutral-900 bg-[#121212] px-2 text-[8px] font-semibold text-neutral-100 outline-none focus:border-blue-500"
+    />
+  );
+}
+
 function Slider({
   label,
   value,
@@ -230,6 +255,32 @@ function SelectInput<T extends string>({
       value={value}
       onChange={(event) => onChange(event.target.value as T)}
       className="nodrag nopan w-full rounded-sm border border-neutral-800 bg-[#171717] px-2 py-1.5 text-[10px] text-neutral-100 outline-none focus:border-blue-500"
+    >
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {labels?.[option] ?? option}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ActionSelectInput<T extends string>({
+  value,
+  options,
+  labels,
+  onChange,
+}: {
+  value: T;
+  options: readonly T[];
+  labels?: Record<string, string>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value as T)}
+      className="nodrag nopan h-5 w-full rounded-sm border border-neutral-900 bg-[#121212] px-2 text-[8px] font-semibold text-neutral-100 outline-none focus:border-blue-500"
     >
       {options.map((option) => (
         <option key={option} value={option}>
@@ -310,6 +361,82 @@ function MiniIconButton({ title, children, onClick }: { title: string; children:
       {children}
     </button>
   );
+}
+
+function ActionDirectorPreview({ image }: { image?: string | null }) {
+  return (
+    <div className="relative h-[192px] shrink-0 overflow-hidden rounded-sm border border-neutral-950 bg-[#101010]">
+      <div className="absolute inset-y-0 left-0 w-[15%] bg-black" />
+      <div className="absolute inset-y-0 right-0 w-[15%] bg-black" />
+      <div
+        className="absolute inset-[1px] opacity-35"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px)",
+          backgroundSize: "28px 28px",
+          transform: "perspective(260px) rotateX(58deg) translateY(42px)",
+          transformOrigin: "50% 78%",
+        }}
+      />
+      {image ? (
+        <img src={image} alt="" className="absolute inset-0 h-full w-full object-contain opacity-80" />
+      ) : (
+        <svg viewBox="0 0 280 190" className="absolute inset-0 h-full w-full">
+          <line x1="140" y1="22" x2="140" y2="164" stroke="#08e17c" strokeWidth="1.3" />
+          <line x1="90" y1="58" x2="190" y2="58" stroke="#02e6a5" strokeWidth="1.2" />
+          <line x1="120" y1="162" x2="160" y2="162" stroke="#f1141e" strokeWidth="1.1" />
+          <line x1="140" y1="74" x2="122" y2="113" stroke="#15db78" strokeWidth="1.4" />
+          <line x1="140" y1="74" x2="158" y2="113" stroke="#15db78" strokeWidth="1.4" />
+          <line x1="122" y1="113" x2="124" y2="151" stroke="#0ce070" strokeWidth="1.4" />
+          <line x1="158" y1="113" x2="156" y2="151" stroke="#0ce070" strokeWidth="1.4" />
+          <line x1="124" y1="151" x2="116" y2="176" stroke="#2459ff" strokeWidth="1.2" />
+          <line x1="156" y1="151" x2="164" y2="176" stroke="#2459ff" strokeWidth="1.2" />
+          <circle cx="140" cy="42" r="10" fill="none" stroke="#2459ff" strokeWidth="1.3" />
+          {[
+            [140, 42, "#2459ff"],
+            [140, 58, "#00e5ff"],
+            [122, 113, "#f1141e"],
+            [158, 113, "#f1141e"],
+            [124, 151, "#2459ff"],
+            [156, 151, "#2459ff"],
+            [116, 176, "#2459ff"],
+            [164, 176, "#2459ff"],
+          ].map(([cx, cy, fill], index) => (
+            <circle key={index} cx={cx} cy={cy} r="2.6" fill={String(fill)} />
+          ))}
+          <line x1="32" y1="160" x2="248" y2="160" stroke="rgba(255,255,255,0.11)" />
+          <line x1="32" y1="122" x2="248" y2="122" stroke="rgba(255,255,255,0.07)" />
+          <line x1="88" y1="160" x2="140" y2="112" stroke="rgba(255,255,255,0.07)" />
+          <line x1="192" y1="160" x2="140" y2="112" stroke="rgba(255,255,255,0.07)" />
+          <line x1="55" y1="160" x2="55" y2="122" stroke="rgba(255,255,255,0.06)" />
+          <line x1="225" y1="160" x2="225" y2="122" stroke="rgba(255,255,255,0.06)" />
+          <line x1="40" y1="150" x2="66" y2="150" stroke="#f1141e" strokeWidth="1.2" />
+          <polygon points="40,150 47,146 47,154" fill="#f1141e" />
+          <line x1="196" y1="150" x2="225" y2="150" stroke="#e3c51b" strokeWidth="1.2" />
+          <line x1="210" y1="136" x2="210" y2="164" stroke="#0ee76e" strokeWidth="1.2" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+function ActionTinyButton({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "blue" | "cyan" | "red" }) {
+  const toneClass = {
+    neutral: "border-neutral-700 bg-[#191919] text-neutral-400",
+    blue: "border-blue-700 bg-blue-700/70 text-white",
+    cyan: "border-cyan-700 bg-cyan-700/70 text-white",
+    red: "border-red-700 bg-red-800/80 text-white",
+  }[tone];
+  return <button className={`nodrag nopan rounded-sm border px-1.5 py-0.5 text-[8px] leading-none ${toneClass}`}>{children}</button>;
+}
+
+function ActionRowButton({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "red" | "teal" }) {
+  const toneClass = tone === "red"
+    ? "bg-red-900/80 text-red-100 hover:bg-red-800"
+    : tone === "teal"
+      ? "bg-cyan-700 text-white hover:bg-cyan-600"
+      : "bg-[#1a1a1a] text-neutral-300 hover:bg-neutral-700";
+  return <button className={`nodrag nopan rounded-sm px-1.5 py-0.5 text-[8px] ${toneClass}`}>{children}</button>;
 }
 
 function MaskPainterSurface({
@@ -478,6 +605,44 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
   }, [addNode, data.urls, id, nodes, updateNodeData]);
 
   const renderHandles = () => {
+    if (nodeType === "actionDirector") {
+      const imageOutputs = [
+        { id: "openPose", top: "7%" },
+        { id: "depth", top: "17%" },
+        { id: "canny", top: "27%" },
+        { id: "normal", top: "37%" },
+        { id: "shaded", top: "47%" },
+        { id: "alpha", top: "57%" },
+      ];
+      const videoOutputs = [
+        { id: "video-openPose", top: "60%" },
+        { id: "video-depth", top: "69%" },
+        { id: "video-canny", top: "78%" },
+        { id: "video-normal", top: "86%" },
+        { id: "video-shaded", top: "94%" },
+        { id: "video-alpha", top: "99%" },
+      ];
+      return (
+        <>
+          {[
+            { id: "video", top: "34%" },
+            { id: "image", top: "72%" },
+          ].map(({ id: handleId, top }) => (
+            <div key={`in-${handleId}`} className="contents">
+              <Handle type="target" position={Position.Left} id={handleId} data-handletype={handleKind(handleId)} style={{ top, zIndex: 10 }} />
+              <HandleLabel label={handleLabel(handleId)} side="target" color={handleColor(handleId)} top={`calc(${top} - 7px)`} visible />
+            </div>
+          ))}
+          {[...imageOutputs, ...videoOutputs].map(({ id: handleId, top }) => (
+            <div key={`out-${handleId}`} className="contents">
+              <Handle type="source" position={Position.Right} id={handleId} data-handletype={handleKind(handleId)} style={{ top, zIndex: 10 }} />
+              <HandleLabel label={handleLabel(handleId)} side="source" color={handleColor(handleId)} top={`calc(${top} - 7px)`} visible />
+            </div>
+          ))}
+        </>
+      );
+    }
+
     const outputHandles = nodeType === "textSplitter" && Array.isArray(data.outputItems) && data.outputItems.length > 0
       ? data.outputItems.slice(0, 10).map((_, index) => `text-${index}`)
       : handles.outputs;
@@ -486,7 +651,7 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
         {handles.inputs.map((handleId, index) => {
           const top = `${((index + 1) / (handles.inputs.length + 1)) * 100}%`;
           return (
-            <div key={`in-${handleId}`}>
+            <div key={`in-${handleId}`} className="contents">
               <Handle type="target" position={Position.Left} id={handleId} data-handletype={handleKind(handleId)} style={{ top, zIndex: 10 }} />
               <HandleLabel label={handleLabel(handleId)} side="target" color={handleColor(handleId)} top={`calc(${top} - 7px)`} visible />
             </div>
@@ -495,7 +660,7 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
         {outputHandles.map((handleId, index) => {
           const top = `${((index + 1) / (outputHandles.length + 1)) * 100}%`;
           return (
-            <div key={`out-${handleId}`}>
+            <div key={`out-${handleId}`} className="contents">
               <Handle type="source" position={Position.Right} id={handleId} data-handletype={handleKind(handleId)} style={{ top, zIndex: 10 }} />
               <HandleLabel label={handleLabel(handleId)} side="source" color={handleColor(handleId)} top={`calc(${top} - 7px)`} visible />
             </div>
@@ -631,20 +796,96 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
       case "forEachEnd":
         return <>{renderPreview("h-36")}<p className="text-[10px] text-neutral-500">Collects image, video, text, and audio items from loop branches.</p></>;
       case "actionDirector":
-        return (
-          <>
-            <Segmented value={(data.mode as "pose" | "depth" | "canny" | "normal" | "shaded" | "alpha") ?? "pose"} options={["pose", "depth", "canny", "normal", "shaded", "alpha"]} labels={{ pose: "OpenPose", depth: "Depth", canny: "Canny", normal: "Normal", shaded: "Shaded", alpha: "Alpha" }} onChange={(value) => setField("mode", value)} />
-            {renderPreview("h-52")}
-            <Segmented value={(data.outputKind as "image" | "video") ?? "image"} options={["image", "video"]} labels={{ image: "Image", video: "Video" }} onChange={(value) => setField("outputKind", value)} />
-            <SelectInput value={String(`${data.width ?? 512}x${data.height ?? 512}`)} options={ACTION_PRESETS.map((p) => `${p.width}x${p.height}`)} labels={Object.fromEntries(ACTION_PRESETS.map((p) => [`${p.width}x${p.height}`, p.label]))} onChange={(value) => {
-              const preset = ACTION_PRESETS.find((item) => `${item.width}x${item.height}` === value);
-              if (preset) updateNodeData(id, { width: preset.width, height: preset.height } as Partial<WorkflowNodeData>);
-            }} />
-            <div className="grid grid-cols-2 gap-2"><div><FieldLabel>W x H</FieldLabel><NumberInput value={Number(data.width ?? 512)} min={1} onChange={(value) => setField("width", value)} /></div><div><FieldLabel>&nbsp;</FieldLabel><NumberInput value={Number(data.height ?? 512)} min={1} onChange={(value) => setField("height", value)} /></div></div>
-            <div className="space-y-1"><FieldLabel>Characters</FieldLabel><div className="rounded-sm bg-[#1a1a1a] p-2 text-[10px] text-neutral-400">Char 1 <button className="float-right rounded-sm bg-blue-600 px-1 text-white">Sel</button></div></div>
-            <button className="nodrag nopan rounded-sm bg-blue-700 px-2 py-1 text-[10px] text-white">Capture Frame</button>
-          </>
-        );
+        {
+          const actionWidth = Number(data.width ?? 512);
+          const actionHeight = Number(data.height ?? 512);
+          const presetValue = `${actionWidth}x${actionHeight}`;
+          return (
+            <>
+              <ActionDirectorPreview image={adaptivePreviewImage} />
+              <div className="grid grid-cols-[42px_1fr] items-center gap-2">
+                <FieldLabel>Mode</FieldLabel>
+                <Segmented value={(data.outputKind as "image" | "video") ?? "image"} options={["image", "video"]} labels={{ image: "Image", video: "Video" }} onChange={(value) => setField("outputKind", value)} />
+              </div>
+              <div className="grid grid-cols-[42px_1fr] items-center gap-2">
+                <FieldLabel>Preset</FieldLabel>
+                <ActionSelectInput value={presetValue} options={ACTION_PRESETS.map((p) => `${p.width}x${p.height}`)} labels={Object.fromEntries(ACTION_PRESETS.map((p) => [`${p.width}x${p.height}`, p.label]))} onChange={(value) => {
+                  const preset = ACTION_PRESETS.find((item) => `${item.width}x${item.height}` === value);
+                  if (preset) updateNodeData(id, { width: preset.width, height: preset.height } as Partial<WorkflowNodeData>);
+                }} />
+              </div>
+              <div className="grid grid-cols-[44px_1fr_1fr] items-end gap-2">
+                <FieldLabel>W x H</FieldLabel>
+                <ActionNumberInput value={actionWidth} min={1} onChange={(value) => setField("width", value)} />
+                <ActionNumberInput value={actionHeight} min={1} onChange={(value) => setField("height", value)} />
+              </div>
+              <div className="flex items-center gap-1">
+                <button className="nodrag nopan flex h-4 w-4 items-center justify-center rounded-sm bg-[#191919] text-cyan-400">
+                  <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                </button>
+                <input type="range" min={0} max={48} value={0} readOnly className="nodrag nopan h-1 flex-1 accent-cyan-500" />
+                <span className="text-[8px] text-neutral-500">0 / 48</span>
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <FieldLabel>Characters</FieldLabel>
+                  <button className="nodrag nopan rounded-sm bg-[#191919] px-1.5 py-0.5 text-[8px] text-neutral-400">+ Add</button>
+                </div>
+                <div className="rounded-sm bg-[#1a1a1a] px-1.5 py-1 text-[9px] text-neutral-400">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-neutral-300">Char 1</span>
+                    <div className="flex gap-1">
+                      <ActionTinyButton tone="blue">M</ActionTinyButton>
+                      <ActionTinyButton tone="cyan">U</ActionTinyButton>
+                      <ActionTinyButton tone="blue">Sel</ActionTinyButton>
+                      <ActionTinyButton>@</ActionTinyButton>
+                      <ActionTinyButton tone="red">x</ActionTinyButton>
+                    </div>
+                  </div>
+                  <div className="text-neutral-600">Clip</div>
+                  <div className="grid grid-cols-[1fr_1fr_auto] gap-1">
+                    <ActionRowButton>+ Add Clip</ActionRowButton>
+                    <ActionRowButton>URL</ActionRowButton>
+                    <ActionRowButton>Import Prop</ActionRowButton>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+                  <FieldLabel>Video pace minicap</FieldLabel>
+                  <ActionRowButton>Import Video</ActionRowButton>
+                </div>
+                <ActionRowButton>+ Add Binding</ActionRowButton>
+              </div>
+              <div className="space-y-0.5">
+                <FieldLabel>Depth</FieldLabel>
+                <div className="grid grid-cols-5 gap-1">
+                  <ActionRowButton>Preview Off</ActionRowButton>
+                  <ActionRowButton>Move</ActionRowButton>
+                  <ActionRowButton>Rotate</ActionRowButton>
+                  <ActionRowButton>Scale</ActionRowButton>
+                  <ActionRowButton tone="red">Dead</ActionRowButton>
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <FieldLabel>Camera keyframes</FieldLabel>
+                <div className="grid grid-cols-[1fr_1fr_auto] gap-1">
+                  <ActionRowButton>Set Start</ActionRowButton>
+                  <ActionRowButton>Set End</ActionRowButton>
+                  <ActionRowButton>Clear Keyframes</ActionRowButton>
+                </div>
+              </div>
+              <div className="grid grid-cols-[42px_1fr] items-center gap-2">
+                <FieldLabel>Ease</FieldLabel>
+                <ActionSelectInput value={String(data.ease ?? "linear")} options={["linear", "ease-in", "ease-out", "ease-in-out"]} labels={{ linear: "linear", "ease-in": "ease in", "ease-out": "ease out", "ease-in-out": "ease in out" }} onChange={(value) => setField("ease", value)} />
+              </div>
+              <ActionRowButton tone="teal">Capture Frame</ActionRowButton>
+              <details className="text-[8px] text-neutral-600">
+                <summary>Advanced</summary>
+              </details>
+            </>
+          );
+        }
       case "urlSpawner": {
         const counts = parseUrls(String(data.urls ?? "")).reduce<Record<string, number>>((acc, url) => {
           const kind = classifyUrl(url) ?? "unknown";
@@ -687,6 +928,7 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
   };
 
   const canExecute = Boolean(blueprint?.canExecute);
+  const isActionDirector = nodeType === "actionDirector";
 
   return (
     <BaseNode
@@ -694,7 +936,7 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
       selected={selected}
       hasError={data.status === "error"}
       className="!bg-[#242424] !border-neutral-700/80"
-      contentClassName="flex h-full flex-col gap-2 p-3 text-[10px]"
+      contentClassName={isActionDirector ? "flex h-full flex-col gap-1.5 p-2 text-[9px]" : "flex h-full flex-col gap-2 p-3 text-[10px]"}
     >
       {renderHandles()}
       <div className="flex items-center justify-between gap-2">
@@ -714,7 +956,7 @@ export function UtilityNode({ id, type, data, selected }: NodeProps<UtilityFlowN
           ) : null}
         </div>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">{renderControls()}</div>
+      <div className={isActionDirector ? "flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden" : "flex min-h-0 flex-1 flex-col gap-2 overflow-auto"}>{renderControls()}</div>
       {data.status === "loading" ? <div className="h-1 rounded bg-blue-500" /> : null}
       {data.error ? <div className="rounded-sm bg-red-950/50 px-2 py-1 text-[10px] text-red-300">{data.error}</div> : null}
       {nodeType === "urlSpawner" && data.lastSpawnedCount ? <div className="text-[10px] text-neutral-500">Spawned {Number(data.lastSpawnedCount)} nodes</div> : null}
