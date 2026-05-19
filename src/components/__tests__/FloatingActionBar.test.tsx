@@ -123,6 +123,7 @@ describe("FloatingActionBar", () => {
         expect(screen.getByText("Inputs")).toBeInTheDocument();
         expect(screen.getByText("Prompt")).toBeInTheDocument();
         expect(screen.getByText("Output")).toBeInTheDocument();
+        expect(screen.getByText("Utility")).toBeInTheDocument();
         expect(screen.getByText("All nodes")).toBeInTheDocument();
       });
     });
@@ -491,6 +492,76 @@ describe("FloatingActionBar", () => {
 
       // Dropdown should close - "Image Input" should no longer be visible
       expect(screen.queryByText("Image Input")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Utility Nodes Menu", () => {
+    it("should render Utility button next to the quick node buttons", async () => {
+      render(
+        <TestWrapper>
+          <FloatingActionBar />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Utility")).toBeInTheDocument();
+      });
+    });
+
+    it("should open Utility dropdown when clicked", async () => {
+      render(
+        <TestWrapper>
+          <FloatingActionBar />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Utility")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Utility"));
+
+      expect(screen.getByText("Split Grid")).toBeInTheDocument();
+      expect(screen.getByText("Text Splitter")).toBeInTheDocument();
+      expect(screen.getByText("Media Download")).toBeInTheDocument();
+      expect(screen.getByText("Audio Equalizer")).toBeInTheDocument();
+      expect(screen.queryByText("Output", { selector: "button.w-full" })).not.toBeInTheDocument();
+    });
+
+    it("should call addNode when a node is selected from Utility menu", async () => {
+      render(
+        <TestWrapper>
+          <FloatingActionBar />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Utility")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Utility"));
+      fireEvent.click(screen.getByText("Media Download"));
+
+      expect(mockAddNode).toHaveBeenCalledWith("mediaDownload", expect.any(Object));
+    });
+
+    it("should close Utility dropdown after selection", async () => {
+      render(
+        <TestWrapper>
+          <FloatingActionBar />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Utility")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Utility"));
+      expect(screen.getByText("Text Splitter")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Text Splitter"));
+
+      expect(screen.queryByText("Text Splitter")).not.toBeInTheDocument();
     });
   });
 
