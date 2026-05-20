@@ -9,6 +9,7 @@ export type BlueprintCategory =
   | "Text"
   | "Generate"
   | "Utility"
+  | "Network"
   | "Route"
   | "Output";
 
@@ -81,7 +82,7 @@ export function getBlueprintMenuCategories(): Array<{
   label: BlueprintCategory;
   nodes: Array<{ type: NodeType; label: string }>;
 }> {
-  const order: BlueprintCategory[] = ["Input", "Text", "Generate", "Utility", "Route", "Output"];
+  const order: BlueprintCategory[] = ["Input", "Text", "Generate", "Utility", "Network", "Route", "Output"];
   return order
     .map((category) => ({
       label: category,
@@ -266,7 +267,7 @@ function xnodeOutputResolver(modelType: string) {
 const xnodeMenuToCategory: Record<string, BlueprintCategory> = {
   Generate: "Generate",
   Utility: "Utility",
-  Network: "Utility",
+  Network: "Network",
   Input: "Input",
   Output: "Output",
 };

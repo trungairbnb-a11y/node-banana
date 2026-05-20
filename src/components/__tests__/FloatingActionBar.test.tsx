@@ -334,7 +334,7 @@ describe("FloatingActionBar", () => {
       expect(mockAddNode).toHaveBeenCalledWith("nanoBanana", expect.any(Object));
     });
 
-    it("should add generateVideo node when Video option is clicked", async () => {
+    it("should add kling26 node when Video option is clicked (mirrors netlify Generate menu)", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -348,7 +348,7 @@ describe("FloatingActionBar", () => {
       fireEvent.click(screen.getByText("Generate"));
       fireEvent.click(screen.getByText("Video", { selector: "button.w-full" }));
 
-      expect(mockAddNode).toHaveBeenCalledWith("generateVideo", expect.any(Object));
+      expect(mockAddNode).toHaveBeenCalledWith("kling26", expect.any(Object));
     });
 
     it("should add llmGenerate node when Text (LLM) option is clicked", async () => {
@@ -425,7 +425,7 @@ describe("FloatingActionBar", () => {
   });
 
   describe("Network Menu", () => {
-    it("should render disabled Network shell button", async () => {
+    it("should render Network shell button", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -434,11 +434,10 @@ describe("FloatingActionBar", () => {
 
       await waitFor(() => {
         expect(screen.getByText("Network")).toBeInTheDocument();
-        expect(screen.getByTitle("Network nodes are planned for a later phase")).toBeInTheDocument();
       });
     });
 
-    it("should open disabled Network dropdown when clicked", async () => {
+    it("should open Network dropdown listing the five netlify entries", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -458,7 +457,7 @@ describe("FloatingActionBar", () => {
       expect(screen.getByText("Cloudinary Upload")).toBeInTheDocument();
     });
 
-    it("should not add Network nodes in this phase", async () => {
+    it("should add the corresponding X-Node node type when a Network entry is clicked", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -470,11 +469,11 @@ describe("FloatingActionBar", () => {
       });
 
       fireEvent.click(screen.getByText("Network"));
-      const webhookButton = screen.getByText("Webhook Trigger").closest("button");
+      const webhookButton = screen.getByText("Webhook Trigger").closest("button")!;
 
-      expect(webhookButton).toBeDisabled();
-      fireEvent.click(webhookButton!);
-      expect(mockAddNode).not.toHaveBeenCalled();
+      expect(webhookButton).not.toBeDisabled();
+      fireEvent.click(webhookButton);
+      expect(mockAddNode).toHaveBeenCalledWith("webhookTrigger", expect.any(Object));
     });
   });
 
