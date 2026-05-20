@@ -37,12 +37,15 @@ type XNodeAIModelNodeType = WorkflowNode & { type: string };
  * UI and route their parameters through the `parameters` object instead.
  */
 const CONFIG_FIELDS: Record<string, Array<{ key: string; label: string; placeholder?: string; type?: "text" | "password" }>> = {
+  // webhookTrigger exposes `slug` (path segment of the generated URL) — see
+  // models.ts. The full URL is derived server-side from slug + webhookToken
+  // and shown read-only via WEBHOOK_URL_FIELDS below.
   webhookTrigger: [
-    { key: "webhookUrl", label: "Webhook URL", placeholder: "Generated after first run" },
+    { key: "slug", label: "Slug", placeholder: "auto-generated-on-first-run" },
   ],
-  webhookResponse: [
-    { key: "webhookUrl", label: "Webhook URL", placeholder: "Generated after first run" },
-  ],
+  // webhookResponse has no user-configurable fields — it only collects inputs
+  // and replies to the in-flight webhook request handled by webhookTrigger.
+  webhookResponse: [],
   dataForward: [
     { key: "webhookUrl", label: "Webhook URL", placeholder: "https://example.com/hook" },
     { key: "authHeader", label: "Auth Header (optional)", placeholder: "Bearer <token>", type: "password" },
