@@ -1451,7 +1451,7 @@ export const X_NODE_MODELS: XNodeModelSchema[] = [
     dimensions: { width: 300, height: 420 },
     minimapColor: "#06b6d4",
     inputs: [],
-    outputs: [{"id": "image", "type": "text"}, {"id": "text", "type": "Text"}, {"id": "video", "type": "video", "label": "Video"}, {"id": "audio", "type": "audio", "label": "Audio"}],
+    outputs: [{"id": "image", "type": "image"}, {"id": "text", "type": "text"}, {"id": "video", "type": "video", "label": "Video"}, {"id": "audio", "type": "audio", "label": "Audio"}],
     defaultData: {
       "slug": "",
       "autoRun": true,
