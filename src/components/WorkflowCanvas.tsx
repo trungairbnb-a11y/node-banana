@@ -49,6 +49,8 @@ import {
   ConditionalSwitchNode,
   UtilityNode,
 } from "./nodes";
+import { XNodeAIModelNode } from "./nodes/XNodeAIModelNode";
+import { X_NODE_MODELS } from "@/lib/xnode/models";
 
 // Lazy-load GLBViewerNode to avoid bundling three.js for users who don't use 3D nodes
 const GLBViewerNode = dynamic(() => import("./nodes/GLBViewerNode").then(mod => ({ default: mod.GLBViewerNode })), { ssr: false });
@@ -151,6 +153,9 @@ const nodeTypes: NodeTypes = {
   extractFrameCustom: UtilityNode,
   frameComposer: UtilityNode,
   audioEnvironment: UtilityNode,
+  ...Object.fromEntries(
+    X_NODE_MODELS.map((model) => [model.type, XNodeAIModelNode])
+  ),
 };
 
 const edgeTypes: EdgeTypes = {
@@ -2273,8 +2278,19 @@ export function WorkflowCanvas() {
                 return "#06b6d4"; // cyan-500 (distinct from Router gray and Switch violet)
               case "glbViewer":
                 return "#0ea5e9"; // sky-500 (3D viewport)
-              default:
+              default: {
+                // Try X-Node schema-registered models (72 reverse-engineered types)
+                const xnodeModel = X_NODE_MODELS.find((m) => m.type === node.type);
+                if (xnodeModel?.minimapColor) return xnodeModel.minimapColor;
+                if (xnodeModel) {
+                  if (xnodeModel.menuGroup === "Network") return "#06b6d4";
+                  if (xnodeModel.category === "video") return "#7c3aed";
+                  if (xnodeModel.category === "audio") return "#d946ef";
+                  if (xnodeModel.category === "text") return "#a855f7";
+                  return "#22c55e";
+                }
                 return "#94a3b8";
+              }
             }
           }}
         />

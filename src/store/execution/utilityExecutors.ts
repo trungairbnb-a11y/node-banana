@@ -29,6 +29,7 @@ import {
   renderActionDirectorImageOutputs,
 } from "@/utils/utilityProcessing";
 import type { NodeExecutionContext, NodeExecutor } from "./types";
+import { getXNodeModel } from "@/lib/xnode/models";
 
 const UTILITY_EXECUTORS: Record<string, NodeExecutor> = {
   textSplitter: executeTextSplitter,
@@ -54,9 +55,75 @@ export function getUtilityExecutor(type: string): NodeExecutor | undefined {
 
 export async function executeRegisteredUtilityNode(ctx: NodeExecutionContext): Promise<boolean> {
   const executor = getUtilityExecutor(ctx.node.type);
-  if (!executor) return false;
-  await executor(ctx);
-  return true;
+  if (executor) {
+    await executor(ctx);
+    return true;
+  }
+  // Fall back to the generic X-Node model executor for the 72 nodes
+  // reverse-engineered from https://dev-x-node.netlify.app/.
+  if (getXNodeModel(ctx.node.type)) {
+    await executeXNodeModelNode(ctx);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Executes a node whose behaviour is defined by the X-Node model registry
+ * (see `src/lib/xnode/models.ts`). Dispatches to `/api/xnode/run`, which
+ * routes to the appropriate provider (Gemini today; everything else returns
+ * a structured "API key required" error so the UI can prompt the user).
+ */
+export async function executeXNodeModelNode(ctx: NodeExecutionContext): Promise<void> {
+  const schema = getXNodeModel(ctx.node.type);
+  if (!schema) {
+    fail(ctx, new Error(`No X-Node schema for type ${ctx.node.type}`));
+  }
+  setLoading(ctx);
+  try {
+    const data = (ctx.getFreshNode(ctx.node.id)?.data ?? ctx.node.data) as Record<string, unknown>;
+    const connected = ctx.getConnectedInputs(ctx.node.id);
+    const prompt = (connected.text ?? (data.inputPrompt as string) ?? "").toString();
+    const inputImages = connected.images ?? [];
+    const inputVideo = connected.videos?.[0] ?? (data.inputVideo as string | undefined);
+    const inputAudio = connected.audio?.[0] ?? (data.inputAudio as string | undefined);
+    const negativePrompt = (data.negativePrompt as string | undefined) ?? "";
+
+    const response = await fetch("/api/xnode/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: ctx.node.type,
+        prompt,
+        negativePrompt,
+        inputImages,
+        inputVideo,
+        inputAudio,
+        parameters: (data.parameters as Record<string, unknown>) ?? {},
+      }),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+    });
+
+    const result = (await response.json()) as
+      | { ok: true; kind: "image" | "video" | "audio" | "text"; value: string }
+      | { ok: false; error?: string; missingEnv?: string; provider?: string };
+
+    if (!result.ok) {
+      const missing = "missingEnv" in result && result.missingEnv
+        ? ` (set ${result.missingEnv})`
+        : "";
+      fail(ctx, new Error((result.error ?? "X-Node execution failed") + missing));
+    }
+
+    const patch: Partial<Record<string, unknown>> = {};
+    if (result.kind === "image") patch.outputImage = result.value;
+    else if (result.kind === "video") patch.outputVideo = result.value;
+    else if (result.kind === "audio") patch.outputAudio = result.value;
+    else if (result.kind === "text") patch.outputText = result.value;
+    setComplete(ctx, patch as Partial<WorkflowNodeData>);
+  } catch (error) {
+    fail(ctx, error);
+  }
 }
 
 function setLoading(ctx: NodeExecutionContext): void {

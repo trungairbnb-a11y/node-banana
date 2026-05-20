@@ -14,11 +14,13 @@ import type {
 
 // Re-export types from annotation for convenience
 export type { AnnotationNodeData, BaseNodeData };
+export type { XNodeModelNodeData } from "./xnodeModel";
 
 // Import from domain files to avoid circular dependencies
 import type { AspectRatio, Resolution, ModelType } from "./models";
 import type { LLMProvider, LLMModelType, SelectedModel, ProviderType } from "./providers";
 import type { GenerationTrace } from "./generationTrace";
+import type { XNodeModelNodeData } from "./xnodeModel";
 
 /**
  * All available node types in the workflow editor
@@ -65,6 +67,78 @@ export type NodeType =
   | "videoMaskOverlay"
   | "extractFrameCustom"
   | "frameComposer"
+  | "aiFaceSwap"
+  | "autoSubtitle"
+  | "cloudinaryUpload"
+  | "dataForward"
+  | "dropboxUpload"
+  | "dubbing"
+  | "dwPose"
+  | "dynamicFal"
+  | "extractFrames"
+  | "falBlendVideo"
+  | "falGptImage2Edit"
+  | "falHappyHorse"
+  | "falHyWuEdit"
+  | "falMergeAudioVideo"
+  | "falMergeAudios"
+  | "falMergeVideos"
+  | "falPixelcutBgRemoval"
+  | "falSmartResize"
+  | "falTextOutput"
+  | "flux2Klein9BBaseLora"
+  | "fluxProKontextEdit"
+  | "generateTTS"
+  | "generateTTSStitch"
+  | "grokImagine"
+  | "grokVideo"
+  | "happyHorse"
+  | "kling26"
+  | "klingAvatar"
+  | "klingMotionControl"
+  | "klingO1"
+  | "klingVideo"
+  | "ltx219bV2V"
+  | "ltx23"
+  | "ltx2322b"
+  | "ltx2322bDistilled"
+  | "lucy2"
+  | "openaiImage"
+  | "phota"
+  | "qwenImage2512Lora"
+  | "qwenImage2ProEdit"
+  | "qwenImageEdit2511Lora"
+  | "qwenImageEditInpaint"
+  | "qwenMultipleAngles"
+  | "reverseVideo"
+  | "sam31SegmentVideo"
+  | "sam3SegmentVideo"
+  | "seedVRUpscale"
+  | "seedance20"
+  | "seedreamV45Edit"
+  | "seedreamV5LiteEdit"
+  | "soundEffect"
+  | "topazVideoUpscale"
+  | "trimVideo"
+  | "veoVideo"
+  | "videoUnderstanding"
+  | "voiceChanger"
+  | "voiceIsolator"
+  | "wan22A14BLora"
+  | "wan22VaceA14b"
+  | "wan25I2V"
+  | "wan26I2V"
+  | "wan26R2V"
+  | "wanAnimateMove"
+  | "wanAnimateReplace"
+  | "wanMotion"
+  | "wanVisionEnhancer"
+  | "webhookResponse"
+  | "webhookTrigger"
+  | "xaiSpeechToText"
+  | "zImageTurboI2I"
+  | "zImageTurboInpaintLora"
+  | "zImageTurboLora"
   | "audioEnvironment";
 
 /**
@@ -868,7 +942,8 @@ export type WorkflowNodeData =
   | VideoMaskOverlayNodeData
   | ExtractFrameCustomNodeData
   | FrameComposerNodeData
-  | AudioEnvironmentNodeData;
+  | AudioEnvironmentNodeData
+  | XNodeModelNodeData;
 
 /**
  * Workflow node with typed data (extended with optional groupId)
