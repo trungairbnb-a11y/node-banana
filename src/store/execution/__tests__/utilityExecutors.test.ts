@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   executeLoadLora,
   executeTextSplitter,
+  executeXNodeModelNode,
   getUtilityExecutor,
 } from "../utilityExecutors";
 import type { NodeExecutionContext } from "../types";
@@ -83,6 +84,27 @@ describe("utilityExecutors", () => {
       outputText: "alpha\nbeta\ngamma",
       status: "complete",
     });
+  });
+
+  it("skips orchestration nodes (provider: internal) without setLoading or fetch", async () => {
+    // webhookTrigger / webhookResponse / dataForward are not API-backed —
+    // they should be a silent no-op during Run-all flows. Previously this
+    // path hit the /api/xnode/run dispatch and surfaced a 'requires FAL_KEY'
+    // error to the user.
+    const node = {
+      id: "webhookTrigger-1",
+      type: "webhookTrigger",
+      position: { x: 0, y: 0 },
+      data: {},
+    } as WorkflowNode;
+    const { ctx, updates } = makeContext(node);
+    const fetchSpy = vi.spyOn(global, "fetch");
+
+    await executeXNodeModelNode(ctx);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(updates).toEqual([]);
+    fetchSpy.mockRestore();
   });
 
   it("serializes LoRA payloads", async () => {
