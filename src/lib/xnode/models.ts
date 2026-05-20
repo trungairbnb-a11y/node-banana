@@ -1457,7 +1457,7 @@ export const X_NODE_MODELS: XNodeModelSchema[] = [
       "autoRun": true,
       "isPublished": false,
       "webhookToken": null,
-      "outputImages": "Array(10).fill(null)",
+      "outputImages": [null, null, null, null, null, null, null, null, null, null],
       "outputText": null,
       "outputVideo": null,
       "outputAudio": null,
