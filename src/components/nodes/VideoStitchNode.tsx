@@ -79,7 +79,7 @@ export function VideoStitchNode({ id, data, selected }: NodeProps<VideoStitchNod
       if (!sourceNode) return;
 
       let videoData: string | null = null;
-      let duration: number | null = null;
+      const duration: number | null = null;
 
       if (sourceNode.type === "generateVideo" || sourceNode.type === "easeCurve" || sourceNode.type === "videoStitch" || sourceNode.type === "videoTrim") {
         videoData = (sourceNode.data as any).outputVideo || null;
@@ -224,7 +224,9 @@ export function VideoStitchNode({ id, data, selected }: NodeProps<VideoStitchNod
 
     extractThumbnails();
     return () => { cancelled = true; };
-  }, [clipKey]); // eslint-disable-line react-hooks/exhaustive-deps — orderedClips accessed via closure, clipKey is the stable dep
+  // orderedClips is accessed via closure; clipKey is the stable dep
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipKey]);
 
   // Pointer-based drag reorder (HTML5 drag doesn't work inside React Flow nodes)
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);

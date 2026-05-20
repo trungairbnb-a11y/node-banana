@@ -30,6 +30,28 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getXNodeModel } from "@/lib/xnode/models";
+import { getFalModelId } from "@/lib/xnode/falModels";
+import { generateWithFalQueue } from "@/app/api/generate/providers/fal";
+import type { GenerationInput, ModelCapability } from "@/lib/providers/types";
+
+/**
+ * Map an X-Node output handle type onto the `ModelCapability` array that
+ * `generateWithFalQueue` reads to detect video/audio/3D output when the fal
+ * CDN response lacks an explicit `Content-Type` header. Mirrors
+ * `capabilitiesForMediaType` in `/api/generate/route.ts`.
+ */
+function capabilitiesForOutputType(outputType: string | undefined): ModelCapability[] {
+  switch (outputType) {
+    case "video":
+      return ["text-to-video"];
+    case "audio":
+      return ["text-to-audio"];
+    case "3d":
+      return ["text-to-3d"];
+    default:
+      return ["text-to-image"];
+  }
+}
 
 export const maxDuration = 600;
 export const dynamic = "force-dynamic";
@@ -208,6 +230,80 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // video models route through the existing Flow video integration).
     const result = await callGeminiImage(prompt, inputImages, apiKey);
     return NextResponse.json(result, { status: result.ok ? 200 : 502 });
+  }
+
+  // fal.ai — real execution via the existing queue pipeline. Any X-Node
+  // model that has a known fal.ai endpoint (see FAL_MODEL_ID_MAP) routes
+  // here, regardless of the schema's nominal `provider` field — several
+  // entries (e.g. kling26, grokImagine) are actually fal-backed despite
+  // being categorised as "kie" or "xai" upstream.
+  const falModelId = getFalModelId(type);
+  if (falModelId) {
+    const apiKey = process.env.FAL_KEY ?? null;
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          ok: false,
+          provider: "fal",
+          missingEnv: "FAL_KEY",
+          error: "FAL_KEY is not configured on the server",
+        },
+        { status: 501 }
+      );
+    }
+
+    const requestId = `xnode-${Math.random().toString(36).slice(2, 10)}`;
+    const dynamicInputs: Record<string, string | string[]> = {};
+    if (body.inputVideo) dynamicInputs.video_url = body.inputVideo;
+    if (body.inputAudio) dynamicInputs.audio_url = body.inputAudio;
+    if (body.parameters) {
+      for (const [k, v] of Object.entries(body.parameters)) {
+        if (typeof v === "string") dynamicInputs[k] = v;
+        else if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
+          dynamicInputs[k] = v as string[];
+        }
+      }
+    }
+    if (body.negativePrompt) dynamicInputs.negative_prompt = body.negativePrompt;
+
+    const genInput: GenerationInput = {
+      model: {
+        id: falModelId,
+        name: schema.displayName,
+        provider: "fal",
+        capabilities: capabilitiesForOutputType(schema.outputs[0]?.type),
+        description: null,
+      },
+      prompt,
+      images: inputImages,
+      parameters: body.parameters ?? {},
+      dynamicInputs,
+    };
+
+    const result = await generateWithFalQueue(requestId, apiKey, genInput);
+    if (!result.success) {
+      return NextResponse.json(
+        { ok: false, provider: "fal", error: result.error || "fal.ai generation failed" },
+        { status: 502 }
+      );
+    }
+    const out = result.outputs?.[0];
+    if (!out) {
+      return NextResponse.json(
+        { ok: false, provider: "fal", error: "fal.ai returned no output" },
+        { status: 502 }
+      );
+    }
+    const kind: "image" | "video" | "audio" =
+      out.type === "image" || out.type === "video" || out.type === "audio"
+        ? out.type
+        : "image";
+    return NextResponse.json({
+      ok: true,
+      kind,
+      value: out.data || out.url || "",
+      ...(out.url ? { url: out.url } : {}),
+    });
   }
 
   // All other providers — surface a clear "API key required" error so the
