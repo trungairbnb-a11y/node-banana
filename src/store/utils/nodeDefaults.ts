@@ -5,6 +5,7 @@ import {
   AudioInputNodeData,
   VideoInputNodeData,
   AnnotationNodeData,
+  StickyNoteNodeData,
   PromptNodeData,
   ArrayNodeData,
   PromptConstructorNodeData,
@@ -63,6 +64,7 @@ export const defaultNodeDimensions: Record<NodeType, { width: number; height: nu
   audioInput: { width: 300, height: 200 },
   videoInput: { width: 300, height: 280 },
   annotation: { width: 300, height: 280 },
+  stickyNote: { width: 250, height: 100 },
   prompt: { width: 320, height: 220 },
   array: { width: 340, height: 260 },
   promptConstructor: { width: 340, height: 280 },
@@ -153,6 +155,12 @@ export const createDefaultNodeData = (type: NodeType): WorkflowNodeData => {
         annotations: [],
         outputImage: null,
       } as AnnotationNodeData;
+    case "stickyNote":
+      return {
+        text: "",
+        fontSize: 16,
+        color: "neutral",
+      } as StickyNoteNodeData;
     case "prompt":
       return {
         prompt: "",

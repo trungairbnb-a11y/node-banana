@@ -28,6 +28,7 @@ export type NodeType =
   | "audioInput"
   | "videoInput"
   | "annotation"
+  | "stickyNote"
   | "prompt"
   | "array"
   | "promptConstructor"
@@ -105,6 +106,25 @@ export interface VideoInputNodeData extends BaseNodeData {
   dimensions: { width: number; height: number } | null;
   format: string | null;         // MIME type (video/mp4, video/webm, etc.)
   isOptional?: boolean;
+}
+
+/**
+ * Sticky Note node - free-form textarea overlay on the canvas.
+ * Reuses the GroupColor palette (defined in workflow.ts).
+ * No handles; not part of execution graph.
+ */
+export type StickyNoteColor =
+  | "neutral"
+  | "blue"
+  | "green"
+  | "purple"
+  | "orange"
+  | "red";
+
+export interface StickyNoteNodeData extends BaseNodeData {
+  text: string;
+  fontSize: number;
+  color: StickyNoteColor;
 }
 
 /**
@@ -811,6 +831,7 @@ export type WorkflowNodeData =
   | AudioInputNodeData
   | VideoInputNodeData
   | AnnotationNodeData
+  | StickyNoteNodeData
   | PromptNodeData
   | ArrayNodeData
   | PromptConstructorNodeData

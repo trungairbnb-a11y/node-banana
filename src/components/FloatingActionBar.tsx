@@ -7,19 +7,11 @@ import { NodeType } from "@/types";
 import { useReactFlow } from "@xyflow/react";
 import { ModelSearchDialog } from "./modals/ModelSearchDialog";
 import { useFTUXStore, TutorialStep } from "@/store/ftuxStore";
-import { getBlueprintMenuCategories } from "@/lib/nodeRegistry";
+import { getUtilityMenuItems, NETWORK_MENU_LABELS } from "@/lib/nodeRegistry";
 
-// All nodes menu categories
-const ALL_NODES_CATEGORIES: { label: string; nodes: { type: NodeType; label: string }[] }[] = getBlueprintMenuCategories();
-const UTILITY_MENU_NODES = ALL_NODES_CATEGORIES.find((category) => category.label === "Utility")?.nodes
-  ?? [];
-const NETWORK_MENU_NODES = [
-  "Webhook Trigger",
-  "Webhook Response",
-  "Data Forward",
-  "Dropbox Upload",
-  "Cloudinary Upload",
-];
+// Utility menu — explicit order mirroring https://dev-x-node.netlify.app/
+const UTILITY_MENU_NODES = getUtilityMenuItems();
+const NETWORK_MENU_NODES = NETWORK_MENU_LABELS;
 
 // Get the center of the React Flow pane in screen coordinates
 function getPaneCenter() {
