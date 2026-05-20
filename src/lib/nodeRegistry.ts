@@ -160,7 +160,8 @@ const baseBlueprints: Array<Omit<NodeBlueprint, "dimensions" | "createData"> & {
   { type: "llmGenerate", label: "LLM Generate", category: "Generate", handles: { inputs: ["text", "image"], outputs: ["text"] } },
   { type: "output", label: "Output", category: "Utility", handles: { inputs: ["image", "video", "audio"], outputs: [] } },
   { type: "splitGrid", label: "Split Grid", category: "Utility", handles: { inputs: ["image"], outputs: ["reference"] } },
-  { type: "annotation", label: "Sticky Note", category: "Utility", handles: { inputs: ["image"], outputs: ["image"] } },
+  { type: "annotation", label: "Annotate", category: "Utility", handles: { inputs: ["image"], outputs: ["image"] } },
+  { type: "stickyNote", label: "Sticky Note", category: "Utility", handles: { inputs: [], outputs: [] } },
   { type: "imageCompare", label: "Image Compare", category: "Utility", handles: { inputs: ["image"], outputs: [] } },
   { type: "videoStitch", label: "Video Stitch", category: "Utility", handles: { inputs: ["video", "audio"], outputs: ["video"] } },
   { type: "videoTrim", label: "Video Trim", category: "Utility", handles: { inputs: ["video"], outputs: ["video"] } },
@@ -182,7 +183,7 @@ baseBlueprints.forEach((blueprint) => {
 
 const utilityBlueprints: Array<Omit<NodeBlueprint, "dimensions" | "createData">> = [
   { type: "textSplitter", label: "Text Splitter", category: "Utility", handles: { inputs: ["text"], outputs: ["text"] }, getOutput: indexedTextOutput, canExecute: true },
-  { type: "maskPainter", label: "Mask Painter", category: "Utility", handles: { inputs: ["image"], outputs: ["image"] }, getOutput: fieldOutput("outputImage", "image") },
+  { type: "maskPainter", label: "Mask painter", category: "Utility", handles: { inputs: ["image"], outputs: ["image"] }, getOutput: fieldOutput("outputImage", "image") },
   { type: "loadLora", label: "Load LoRA", category: "Utility", handles: { inputs: [], outputs: ["lora"] }, getOutput: fieldOutput("outputLora", "text"), canExecute: true },
   { type: "blur", label: "Blur", category: "Utility", handles: { inputs: ["image", "mask"], outputs: ["image"] }, getOutput: fieldOutput("outputImage", "image"), canExecute: true },
   { type: "reformat", label: "Reformat", category: "Utility", handles: { inputs: ["image"], outputs: ["image"] }, getOutput: fieldOutput("outputImage", "image"), canExecute: true },
@@ -225,3 +226,59 @@ utilityBlueprints.forEach((blueprint) => {
     },
   });
 });
+
+/**
+ * Explicit Utility menu order — mirrors https://dev-x-node.netlify.app/ exactly.
+ *
+ * Keeps the legacy `annotation` (Konva canvas) and 4 video utility nodes registered
+ * in the Utility category for backward compatibility with saved workflows, but hides
+ * them from this menu (they remain accessible via the connection-drop menu / context
+ * menu / loaded workflows).
+ */
+export const UTILITY_MENU_ORDER: NodeType[] = [
+  "output",
+  "splitGrid",
+  "stickyNote",
+  "textSplitter",
+  "imageCompare",
+  "maskPainter",
+  "audioEnvironment",
+  "blur",
+  "reformat",
+  "crop",
+  "colorCorrection",
+  "compositor",
+  "videoMaskOverlay",
+  "extractFrameCustom",
+  "frameComposer",
+  "loadLora",
+  "switch",
+  "forEachStart",
+  "forEachEnd",
+  "actionDirector",
+  "urlSpawner",
+  "mediaDownload",
+];
+
+/**
+ * Network menu items — placeholder labels mirroring the netlify Network menu.
+ * No backing node types yet (stub buttons are disabled in the UI).
+ */
+export const NETWORK_MENU_LABELS: readonly string[] = [
+  "Webhook Trigger",
+  "Webhook Response",
+  "Data Forward",
+  "Dropbox Upload",
+  "Cloudinary Upload",
+];
+
+/**
+ * Returns the ordered Utility menu entries (type + label) for the FloatingActionBar.
+ * Unknown types are silently dropped.
+ */
+export function getUtilityMenuItems(): Array<{ type: NodeType; label: string }> {
+  return UTILITY_MENU_ORDER.flatMap((type) => {
+    const blueprint = getBlueprint(type);
+    return blueprint ? [{ type, label: blueprint.label }] : [];
+  });
+}
