@@ -102,7 +102,14 @@ export async function POST(
     }
   }
 
-  const token = existing?.token ?? body.providedToken?.trim() ?? generateWebhookToken();
+  // Use `||` instead of `??` so an empty / whitespace-only providedToken
+  // falls through to a freshly generated token. With `??` an empty string
+  // would be kept verbatim, which would (a) leave the registry without an
+  // auth token (so anyone could POST to /api/webhook/<slug>) and (b) make
+  // the entry undeletable, because the auth check at delete time would
+  // always fail against `""`.
+  const providedTrimmed = body.providedToken?.trim() ?? "";
+  const token = existing?.token || providedTrimmed || generateWebhookToken();
 
   registerWebhook({
     slug,

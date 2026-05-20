@@ -65,6 +65,23 @@ function dropboxPath(folderPath: string | undefined, fileName: string): string {
   return `${normalisedFolder.replace(/\/+$/, "")}/${fileName.replace(/^\/+/, "")}`;
 }
 
+/**
+ * Convert a Dropbox shared link to a direct-download URL.
+ *
+ * Dropbox returns links with `?dl=0` (preview) or `&dl=0` when other query
+ * parameters are present. Downstream nodes need the raw bytes, so we flip
+ * `dl=0` → `dl=1` while preserving the original separator. Exported for
+ * unit tests.
+ */
+export function dropboxDirectUrl(sharedUrl: string | null): string | null {
+  if (!sharedUrl) return null;
+  if (/[?&]dl=0(\b|$)/.test(sharedUrl)) {
+    return sharedUrl.replace(/([?&])dl=0/, "$1dl=1");
+  }
+  if (/[?&]dl=1(\b|$)/.test(sharedUrl)) return sharedUrl;
+  return sharedUrl.includes("?") ? `${sharedUrl}&dl=1` : `${sharedUrl}?dl=1`;
+}
+
 async function createSharedLink(accessToken: string, path: string): Promise<string | null> {
   try {
     const res = await fetch(
@@ -194,11 +211,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<DropboxUp
     );
   }
 
-  // 2. Create / look up shared link
+  // 2. Create / look up shared link.  Dropbox returns preview links
+  // (`...?dl=0`); downstream nodes need the raw bytes so we flip the flag
+  // while preserving the original separator (see `dropboxDirectUrl`).
   const sharedUrl = await createSharedLink(accessToken, path);
-  // Dropbox shared links serve a preview by default; ?dl=1 streams the
-  // raw file, which is what downstream nodes need.
-  const directUrl = sharedUrl ? sharedUrl.replace(/[?&]dl=0/, "?dl=1") : null;
+  const directUrl = dropboxDirectUrl(sharedUrl);
 
   if (!directUrl) {
     return NextResponse.json(
