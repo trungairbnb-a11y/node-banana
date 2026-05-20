@@ -26,6 +26,42 @@ import type { WorkflowNode, XNodeModelNodeData } from "@/types";
  */
 type XNodeAIModelNodeType = WorkflowNode & { type: string };
 
+/**
+ * Per-node-type list of `defaultData` keys that should be exposed as
+ * editable text fields inside the node card. Mirrors the inline
+ * configuration panels shown in https://dev-x-node.netlify.app/.
+ *
+ * Limited to orchestration / integration nodes whose only configuration
+ * is a few string properties (webhook URLs, dropbox folder, cloudinary
+ * credentials, etc). Generation models keep their existing prompt-driven
+ * UI and route their parameters through the `parameters` object instead.
+ */
+const CONFIG_FIELDS: Record<string, Array<{ key: string; label: string; placeholder?: string; type?: "text" | "password" }>> = {
+  webhookTrigger: [
+    { key: "webhookUrl", label: "Webhook URL", placeholder: "Generated after first run" },
+  ],
+  webhookResponse: [
+    { key: "webhookUrl", label: "Webhook URL", placeholder: "Generated after first run" },
+  ],
+  dataForward: [
+    { key: "webhookUrl", label: "Webhook URL", placeholder: "https://example.com/hook" },
+    { key: "authHeader", label: "Auth Header (optional)", placeholder: "Bearer <token>", type: "password" },
+  ],
+  dropboxUpload: [
+    { key: "folderPath", label: "Folder Path", placeholder: "/node-banana" },
+    { key: "fileName", label: "File Name (optional)", placeholder: "auto-generated" },
+  ],
+  cloudinaryUpload: [
+    { key: "cloudName", label: "Cloud Name", placeholder: "my-cloud" },
+    { key: "apiKey", label: "Upload Preset / API Key", placeholder: "preset-or-key", type: "password" },
+    { key: "fileName", label: "File Name (optional)", placeholder: "auto-generated" },
+  ],
+};
+
+function getConfigFields(type: string) {
+  return CONFIG_FIELDS[type] ?? [];
+}
+
 function getHandleColor(type: string): string {
   if (type.startsWith("image") || type === "reference" || type.startsWith("ref-image")) return "#3b82f6";
   if (type.startsWith("video") || type === "top-video" || type === "bottom-video") return "#22c55e";
@@ -63,6 +99,12 @@ export const XNodeAIModelNode = memo(function XNodeAIModelNode({
     (value: string) => updateNodeData(id, { negativePrompt: value }),
     [id, updateNodeData]
   );
+  const updateConfigField = useCallback(
+    (key: string, value: string) => updateNodeData(id, { [key]: value }),
+    [id, updateNodeData]
+  );
+  const configFields = useMemo(() => getConfigFields(type as string), [type]);
+  const nodeDataRecord = nodeData as unknown as Record<string, unknown>;
 
   if (!schema) {
     return (
@@ -162,6 +204,29 @@ export const XNodeAIModelNode = memo(function XNodeAIModelNode({
             value={nodeData.negativePrompt ?? ""}
             onChange={(e) => updateNegative(e.target.value)}
           />
+        )}
+
+        {configFields.length > 0 && (
+          <div className="flex flex-col gap-1.5 px-1">
+            {configFields.map((field) => {
+              const raw = nodeDataRecord[field.key];
+              const value = typeof raw === "string" ? raw : "";
+              return (
+                <label key={field.key} className="flex flex-col gap-0.5">
+                  <span className="text-[10px] uppercase tracking-wide text-neutral-500">
+                    {field.label}
+                  </span>
+                  <input
+                    type={field.type ?? "text"}
+                    value={value}
+                    placeholder={field.placeholder}
+                    onChange={(e) => updateConfigField(field.key, e.target.value)}
+                    className="nodrag nopan w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-[11px] focus:outline-none focus:border-neutral-500"
+                  />
+                </label>
+              );
+            })}
+          </div>
         )}
 
         {nodeData.outputImage && (
