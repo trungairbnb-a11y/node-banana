@@ -1464,7 +1464,7 @@ export const X_NODE_MODELS: XNodeModelSchema[] = [
       "status": "idle",
       "error": null,
     },
-    provider: "fal",
+    provider: "internal",
   },
   {
     type: "webhookResponse",
@@ -1484,7 +1484,7 @@ export const X_NODE_MODELS: XNodeModelSchema[] = [
       "status": "idle",
       "error": null,
     },
-    provider: "fal",
+    provider: "internal",
   },
   {
     type: "dataForward",
@@ -1508,7 +1508,7 @@ export const X_NODE_MODELS: XNodeModelSchema[] = [
       "status": "idle",
       "error": null,
     },
-    provider: "fal",
+    provider: "internal",
   },
 ]
 

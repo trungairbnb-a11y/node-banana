@@ -120,12 +120,14 @@ export const XNodeAIModelNode = memo(function XNodeAIModelNode({
           <div className="font-medium truncate" title={schema.displayName}>
             {schema.displayName}
           </div>
-          <div
-            className="text-[10px] uppercase tracking-wide opacity-60"
-            title={`Provider: ${schema.provider}`}
-          >
-            {schema.provider}
-          </div>
+          {schema.provider !== "internal" && (
+            <div
+              className="text-[10px] uppercase tracking-wide opacity-60"
+              title={`Provider: ${schema.provider}`}
+            >
+              {schema.provider}
+            </div>
+          )}
         </div>
 
         {schema.inputs.length > 0 && (
