@@ -175,31 +175,30 @@ describe("/api/xnode/run", () => {
     expect(genInput.model.capabilities).toContain("text-to-audio");
   });
 
-  it("returns a non-credential 400 for internal/orchestration nodes (webhookTrigger)", async () => {
-    // webhookTrigger / webhookResponse / dataForward are orchestration
-    // primitives (provider: "internal"), not API-backed models. The dispatch
-    // endpoint must NOT claim a missing FAL_KEY for them — that misled users
-    // into thinking they needed a fal.ai credential to use webhooks.
+  it("returns a 200 no-op for internal/orchestration nodes (webhookTrigger)", async () => {
+    // webhookTrigger / webhookResponse / dataForward / dropboxUpload /
+    // cloudinaryUpload are orchestration primitives (provider: "internal")
+    // handled by dedicated client-side executors. The generic /api/xnode/run
+    // dispatcher must NOT claim a missing FAL_KEY for them — that misled
+    // users into thinking they needed a fal.ai credential to use webhooks.
     const res = await POST(makeRequest({ type: "webhookTrigger" }));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
     const body = (await res.json()) as {
       ok: boolean;
-      provider: string;
-      missingEnv?: string;
-      error: string;
+      kind: string;
+      value: string;
     };
-    expect(body.ok).toBe(false);
-    expect(body.provider).toBe("internal");
-    expect(body.missingEnv).toBeUndefined();
-    expect(body.error).toMatch(/orchestration/i);
+    expect(body.ok).toBe(true);
+    expect(body.kind).toBe("text");
+    expect(body.value).toMatch(/event-driven/i);
   });
 
-  it("returns a non-credential 400 for dataForward (provider: internal)", async () => {
+  it("returns a 200 no-op for dataForward (provider: internal)", async () => {
     const res = await POST(makeRequest({ type: "dataForward" }));
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { ok: boolean; provider: string; missingEnv?: string };
-    expect(body.provider).toBe("internal");
-    expect(body.missingEnv).toBeUndefined();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; kind: string };
+    expect(body.ok).toBe(true);
+    expect(body.kind).toBe("text");
   });
 
   it("surfaces fal.ai generation errors as 502", async () => {

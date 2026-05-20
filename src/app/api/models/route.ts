@@ -38,6 +38,7 @@ import {
   WaveSpeedApiSchema,
 } from "@/lib/providers/cache";
 import { FLOW_MODELS } from "@/lib/flow/modes";
+import { getFalKey } from "@/lib/serverEnv";
 
 // API base URLs
 const REPLICATE_API_BASE = "https://api.replicate.com/v1";
@@ -1110,7 +1111,7 @@ export async function GET(
 
   // Get API keys from headers, falling back to env variables
   const replicateKey = request.headers.get("X-Replicate-Key") || process.env.REPLICATE_API_KEY || null;
-  const falKey = request.headers.get("X-Fal-Key") || process.env.FAL_API_KEY || null;
+  const falKey = request.headers.get("X-Fal-Key") || getFalKey();
   const kieKey = request.headers.get("X-Kie-Key") || process.env.KIE_API_KEY || null;
   const wavespeedKey = request.headers.get("X-WaveSpeed-Key") || process.env.WAVESPEED_API_KEY || null;
   const openaiKey =

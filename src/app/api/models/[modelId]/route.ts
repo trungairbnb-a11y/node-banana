@@ -31,6 +31,7 @@ import {
   WaveSpeedApiSchema,
 } from "@/lib/providers/cache";
 import { getFlowSchemaForModel } from "@/lib/flow/modes";
+import { getFalKey } from "@/lib/serverEnv";
 
 // Cache for model schemas (10 minute TTL)
 const schemaCache = new Map<string, { parameters: ModelParameter[]; inputs: ModelInput[]; timestamp: number }>();
@@ -1551,7 +1552,7 @@ export async function GET(
       result = await fetchWaveSpeedSchema(decodedModelId, apiKey);
     } else {
       // User-provided key takes precedence over env variable
-      const apiKey = request.headers.get("X-Fal-Key") || process.env.FAL_API_KEY || null;
+      const apiKey = request.headers.get("X-Fal-Key") || getFalKey();
       if (!apiKey) {
         return NextResponse.json<SchemaErrorResponse>(
           {

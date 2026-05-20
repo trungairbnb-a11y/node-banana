@@ -19,6 +19,7 @@ import { clearFalInputMappingCache as _clearFalInputMappingCache, generateWithFa
 import { submitKieTask } from "./providers/kie";
 import { generateWithWaveSpeed } from "./providers/wavespeed";
 import { submitFlowVideoTask } from "@/lib/flow/engine";
+import { getFalKey } from "@/lib/serverEnv";
 import {
   buildGenerationTrace,
   buildTraceWarnings,
@@ -597,7 +598,7 @@ export async function POST(request: NextRequest) {
       }
 
       // User-provided key takes precedence over env variable
-      const falApiKey = request.headers.get("X-Fal-API-Key") || process.env.FAL_API_KEY || null;
+      const falApiKey = request.headers.get("X-Fal-API-Key") || getFalKey();
 
       if (!falApiKey) {
         console.warn(`[API:${requestId}] No FAL API key configured. Proceeding without auth (rate-limited).`);

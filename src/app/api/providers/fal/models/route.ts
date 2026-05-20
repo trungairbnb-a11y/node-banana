@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ProviderModel, ModelCapability } from "@/lib/providers";
+import { getFalKey } from "@/lib/serverEnv";
 
 const FAL_API_BASE = "https://api.fal.ai/v1";
 
@@ -112,7 +113,7 @@ export async function GET(
   const apiKey =
     request.headers.get("X-API-Key") ||
     request.headers.get("Authorization")?.replace(/^Key\s+/i, "") ||
-    process.env.FAL_API_KEY;
+    getFalKey();
 
   if (!apiKey) {
     return NextResponse.json<ModelsErrorResponse>(

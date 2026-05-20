@@ -43,7 +43,13 @@ describe("utilityExecutors", () => {
   it("registers utility executors", () => {
     expect(getUtilityExecutor("textSplitter")).toBe(executeTextSplitter);
     expect(getUtilityExecutor("mediaDownload")).toBeTypeOf("function");
-    expect(getUtilityExecutor("dropboxUpload")).toBeUndefined();
+    // Network nodes now have dedicated client-side executors that match
+    // the netlify clone's executeLocal / prepareExecution behaviour.
+    expect(getUtilityExecutor("dataForward")).toBeTypeOf("function");
+    expect(getUtilityExecutor("webhookResponse")).toBeTypeOf("function");
+    expect(getUtilityExecutor("webhookTrigger")).toBeTypeOf("function");
+    expect(getUtilityExecutor("dropboxUpload")).toBeTypeOf("function");
+    expect(getUtilityExecutor("cloudinaryUpload")).toBeTypeOf("function");
   });
 
   it("splits connected text into dynamic outputs", async () => {
@@ -86,11 +92,11 @@ describe("utilityExecutors", () => {
     });
   });
 
-  it("skips orchestration nodes (provider: internal) without setLoading or fetch", async () => {
-    // webhookTrigger / webhookResponse / dataForward are not API-backed —
-    // they should be a silent no-op during Run-all flows. Previously this
-    // path hit the /api/xnode/run dispatch and surfaced a 'requires FAL_KEY'
-    // error to the user.
+  it("executeXNodeModelNode is a no-op for orchestration provider: internal", async () => {
+    // The generic /api/xnode/run dispatcher must not be hit for Network
+    // nodes — they're handled by dedicated executors registered in
+    // UTILITY_EXECUTORS. This test guards the early-return inside
+    // executeXNodeModelNode itself.
     const node = {
       id: "webhookTrigger-1",
       type: "webhookTrigger",
