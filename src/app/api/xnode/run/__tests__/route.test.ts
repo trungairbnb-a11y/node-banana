@@ -175,6 +175,33 @@ describe("/api/xnode/run", () => {
     expect(genInput.model.capabilities).toContain("text-to-audio");
   });
 
+  it("returns a non-credential 400 for internal/orchestration nodes (webhookTrigger)", async () => {
+    // webhookTrigger / webhookResponse / dataForward are orchestration
+    // primitives (provider: "internal"), not API-backed models. The dispatch
+    // endpoint must NOT claim a missing FAL_KEY for them — that misled users
+    // into thinking they needed a fal.ai credential to use webhooks.
+    const res = await POST(makeRequest({ type: "webhookTrigger" }));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      ok: boolean;
+      provider: string;
+      missingEnv?: string;
+      error: string;
+    };
+    expect(body.ok).toBe(false);
+    expect(body.provider).toBe("internal");
+    expect(body.missingEnv).toBeUndefined();
+    expect(body.error).toMatch(/orchestration/i);
+  });
+
+  it("returns a non-credential 400 for dataForward (provider: internal)", async () => {
+    const res = await POST(makeRequest({ type: "dataForward" }));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { ok: boolean; provider: string; missingEnv?: string };
+    expect(body.provider).toBe("internal");
+    expect(body.missingEnv).toBeUndefined();
+  });
+
   it("surfaces fal.ai generation errors as 502", async () => {
     process.env.FAL_KEY = "fake-fal-key";
     vi.spyOn(falProvider, "generateWithFalQueue").mockResolvedValue({

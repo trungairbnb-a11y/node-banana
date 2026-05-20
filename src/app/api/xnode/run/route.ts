@@ -306,6 +306,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   }
 
+  // Internal/system nodes (webhook trigger/response, data forward) are not
+  // backed by an external API — they're orchestration primitives whose state
+  // is driven by external HTTP events (webhooks) rather than by the run
+  // dispatcher. Surface a clear, non-credential error so the UI can show a
+  // helpful message instead of prompting for a non-existent API key.
+  if (schema.provider === "internal") {
+    return NextResponse.json(
+      {
+        ok: false,
+        provider: schema.provider,
+        error: `${schema.displayName} is an orchestration node and does not run via /api/xnode/run`,
+      },
+      { status: 400 }
+    );
+  }
+
   // All other providers — surface a clear "API key required" error so the
   // UI can prompt the user to add the credential. We intentionally do NOT
   // fall back to a mocked response.
