@@ -101,6 +101,7 @@ export async function executeXNodeModelNode(ctx: NodeExecutionContext): Promise<
         inputAudio,
         parameters: (data.parameters as Record<string, unknown>) ?? {},
       }),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
     const result = (await response.json()) as
