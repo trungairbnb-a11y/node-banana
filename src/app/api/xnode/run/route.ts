@@ -32,6 +32,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getXNodeModel } from "@/lib/xnode/models";
 import { getFalModelId } from "@/lib/xnode/falModels";
 import { generateWithFalQueue } from "@/app/api/generate/providers/fal";
+import { getFalKey } from "@/lib/serverEnv";
 import type { GenerationInput, ModelCapability } from "@/lib/providers/types";
 
 /**
@@ -239,7 +240,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // being categorised as "kie" or "xai" upstream.
   const falModelId = getFalModelId(type);
   if (falModelId) {
-    const apiKey = process.env.FAL_KEY ?? null;
+    const apiKey = getFalKey();
     if (!apiKey) {
       return NextResponse.json(
         {
@@ -306,19 +307,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   }
 
-  // Internal/system nodes (webhook trigger/response, data forward) are not
-  // backed by an external API — they're orchestration primitives whose state
-  // is driven by external HTTP events (webhooks) rather than by the run
-  // dispatcher. Surface a clear, non-credential error so the UI can show a
-  // helpful message instead of prompting for a non-existent API key.
+  // Network nodes (dataForward / webhookResponse / webhookTrigger /
+  // dropboxUpload / cloudinaryUpload) are handled by dedicated client-side
+  // executors in src/store/execution/utilityExecutors.ts — they call the
+  // /api/dropbox/upload, /api/cloudinary/upload, /api/webhook/register, or
+  // the user's webhook URL directly. They never reach this dispatcher in
+  // normal flows. If a caller still POSTs an `internal` provider node here
+  // (e.g. an external test), respond with a clear 200 no-op so the UI does
+  // not flag an error.
   if (schema.provider === "internal") {
     return NextResponse.json(
       {
-        ok: false,
-        provider: schema.provider,
-        error: `${schema.displayName} is an orchestration node and does not run via /api/xnode/run`,
+        ok: true,
+        kind: "text",
+        value: `${schema.displayName} is event-driven; executed client-side.`,
       },
-      { status: 400 }
+      { status: 200 }
     );
   }
 

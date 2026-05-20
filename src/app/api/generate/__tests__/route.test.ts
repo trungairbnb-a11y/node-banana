@@ -2133,7 +2133,10 @@ describe("/api/generate route", () => {
     });
 
     it("should proceed without API key (rate-limited)", async () => {
+      // getFalKey() reads FAL_KEY then FAL_API_KEY; clear both so no key is
+      // resolved from the environment.
       delete process.env.FAL_API_KEY;
+      delete process.env.FAL_KEY;
 
       // Schema fetch (for input mapping when no dynamicInputs)
       mockFetch.mockResolvedValueOnce({
@@ -2202,6 +2205,7 @@ describe("/api/generate route", () => {
 
     it("should handle rate limit (429) without API key", async () => {
       delete process.env.FAL_API_KEY;
+      delete process.env.FAL_KEY;
 
       // Schema fetch (for input mapping when no dynamicInputs)
       mockFetch.mockResolvedValueOnce({
@@ -2466,6 +2470,9 @@ describe("/api/generate route", () => {
     });
 
     it("should use env var API key when header not provided", async () => {
+      // Clear FAL_KEY (preferred alias) so getFalKey() falls through to
+      // FAL_API_KEY, the canonical env var checked by this test.
+      delete process.env.FAL_KEY;
       process.env.FAL_API_KEY = "env-fal-key";
 
       // Schema fetch (for input mapping when no dynamicInputs)

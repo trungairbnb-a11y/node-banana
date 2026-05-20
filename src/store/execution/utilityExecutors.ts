@@ -47,6 +47,14 @@ const UTILITY_EXECUTORS: Record<string, NodeExecutor> = {
   extractFrameCustom: executeExtractFrameCustom,
   frameComposer: executeFrameComposer,
   audioEnvironment: executeAudioEnvironment,
+  // Network nodes — match the netlify clone exactly. Each executor runs
+  // client-side (executeLocal style) so the network shape in devtools is
+  // identical to https://dev-x-node.netlify.app/.
+  dataForward: executeDataForward,
+  webhookResponse: executeWebhookResponse,
+  webhookTrigger: executeWebhookTrigger,
+  dropboxUpload: executeDropboxUpload,
+  cloudinaryUpload: executeCloudinaryUpload,
 };
 
 export function getUtilityExecutor(type: string): NodeExecutor | undefined {
@@ -80,10 +88,12 @@ export async function executeXNodeModelNode(ctx: NodeExecutionContext): Promise<
     fail(ctx, new Error(`No X-Node schema for type ${ctx.node.type}`));
     return;
   }
-  // Orchestration / webhook nodes (webhookTrigger, webhookResponse, dataForward)
-  // are not API-backed — they're driven by external HTTP events and remain in
-  // 'idle' until something pokes them. Skipping silently keeps Run-all flows
-  // from showing a spurious error on these nodes.
+  // Network nodes have dedicated client-side executors (see
+  // executeDataForward / executeWebhookResponse / executeDropboxUpload /
+  // executeCloudinaryUpload). They are wired into UTILITY_EXECUTORS above
+  // and dispatched through executeRegisteredUtilityNode, so they never
+  // reach this generic /api/xnode/run path. Other "internal" providers
+  // (webhookTrigger) are event-driven and have no Run-all behaviour.
   if (schema.provider === "internal") {
     return;
   }
@@ -527,3 +537,299 @@ export async function executeAudioEnvironment(ctx: NodeExecutionContext): Promis
 export function isUtilityNodeData(data: WorkflowNodeData): data is UtilityNodeData {
   return typeof (data as UtilityNodeData).status === "string";
 }
+
+// ---------------------------------------------------------------------------
+// Network node executors
+// ---------------------------------------------------------------------------
+//
+// These match the executeLocal / prepareExecution behaviour reverse-engineered
+// from the netlify bundle
+// (`/home/ubuntu/xnode-bundle/beautified/08luc7y3a_rin.js`). Each runs in the
+// browser and either issues a fetch directly to the user's URL (dataForward)
+// or hits a dedicated server route (dropboxUpload / cloudinaryUpload).
+//
+// Webhook nodes:
+//   - webhookTrigger : Publish flow lives in the node UI; Run-all is a no-op.
+//                      Auto-run on incoming POST is handled by the dedicated
+//                      /api/webhook/[slug] route + the node UI's polling.
+//   - webhookResponse: Collects inputs into node data — no network call.
+
+interface DataForwardData {
+  webhookUrl?: string;
+  authHeader?: string | null;
+  parameters?: { webhookUrl?: string; authHeader?: string };
+}
+
+function firstConnectedText(ctx: NodeExecutionContext): string | null {
+  return ctx.getConnectedInputs(ctx.node.id).text ?? null;
+}
+
+export async function executeDataForward(ctx: NodeExecutionContext): Promise<void> {
+  setLoading(ctx);
+  try {
+    const data = (ctx.getFreshNode(ctx.node.id)?.data ?? ctx.node.data) as DataForwardData;
+    // The schema stores webhookUrl/authHeader at the top level (netlify
+    // bundle convention) but our XNodeAIModelNode UI writes them under
+    // `parameters` — accept either to remain backwards-compatible.
+    const webhookUrl =
+      (data.parameters?.webhookUrl ?? data.webhookUrl ?? "").trim();
+    const authHeader = (data.parameters?.authHeader ?? data.authHeader ?? "")?.toString().trim();
+
+    if (!webhookUrl) throw new Error("Data Forward: 'Webhook URL' is required");
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(webhookUrl);
+    } catch {
+      throw new Error(`Data Forward: invalid URL "${webhookUrl}"`);
+    }
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      throw new Error(
+        `Data Forward: only http(s) URLs are allowed (got ${parsedUrl.protocol})`
+      );
+    }
+
+    const connected = ctx.getConnectedInputs(ctx.node.id);
+    const payload: Record<string, unknown> = {
+      images: connected.images ?? [],
+      text: connected.text ?? null,
+      video: connected.videos?.[0] ?? null,
+      audio: connected.audio?.[0] ?? null,
+      timestamp: new Date().toISOString(),
+    };
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (authHeader) headers["Authorization"] = authHeader;
+
+    const response = await fetch(parsedUrl.toString(), {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+    });
+
+    const responseText = await response.text().catch(() => "");
+    const truncated = responseText.length > 4000 ? responseText.slice(0, 4000) + "\u2026" : responseText;
+
+    if (!response.ok) {
+      throw new Error(
+        `Data Forward: remote returned ${response.status}: ${truncated.slice(0, 500)}`
+      );
+    }
+
+    setComplete(ctx, {
+      collectedImages: payload.images as string[],
+      collectedImage: (payload.images as string[])[0] ?? null,
+      collectedText: payload.text,
+      collectedVideo: payload.video,
+      collectedAudio: payload.audio,
+      lastResponse: truncated.slice(0, 500),
+      lastStatus: response.status,
+      outputKind: "text",
+    } as Partial<WorkflowNodeData>);
+  } catch (error) {
+    fail(ctx, error);
+  }
+}
+
+export async function executeWebhookResponse(ctx: NodeExecutionContext): Promise<void> {
+  // No network call; just collect inputs onto the node's data so the user
+  // can see what arrived. Mirrors the netlify executeLocal exactly.
+  setLoading(ctx);
+  try {
+    const connected = ctx.getConnectedInputs(ctx.node.id);
+    const images = connected.images ?? [];
+    const text = connected.text ?? null;
+    const video = connected.videos?.[0] ?? null;
+    const audio = connected.audio?.[0] ?? null;
+
+    const patch: Record<string, unknown> = {
+      collectedImage: images[0] ?? null,
+      collectedImages: images,
+      collectedText: text,
+      collectedVideo: video,
+      collectedAudio: audio,
+      outputKind: video ? "video" : audio ? "audio" : text ? "text" : "image",
+    };
+
+    // The netlify bundle also detects video data URLs disguised as images
+    // (some sources return data:video/* with no separate video input).
+    if (!video && !audio && !text && images.length > 0) {
+      const first = images[0];
+      if (
+        first.startsWith("data:video/") ||
+        first.includes(".mp4") ||
+        first.includes(".webm")
+      ) {
+        patch.collectedVideo = first;
+        patch.collectedImage = null;
+        patch.collectedImages = [];
+        patch.outputKind = "video";
+      }
+    }
+
+    setComplete(ctx, patch as Partial<WorkflowNodeData>);
+  } catch (error) {
+    fail(ctx, error);
+  }
+}
+
+export async function executeWebhookTrigger(ctx: NodeExecutionContext): Promise<void> {
+  // Webhook Trigger is event-driven: when the user clicks Publish, the
+  // node component POSTs to /api/webhook/register and external POSTs to
+  // /api/webhook/[slug] populate the node's outputs. Run-all is a no-op
+  // that simply preserves the previously received payload.
+  ctx.updateNodeData(ctx.node.id, {
+    status: "idle",
+  } as Partial<WorkflowNodeData>);
+}
+
+interface DropboxUploadData {
+  folderPath?: string;
+  fileName?: string;
+  parameters?: { folderPath?: string; fileName?: string };
+}
+
+function pickFirstNetworkInput(
+  ctx: NodeExecutionContext
+): { inputType: "image" | "video" | "audio" | "text"; data: string } | null {
+  const connected = ctx.getConnectedInputs(ctx.node.id);
+  if (connected.videos?.[0]) return { inputType: "video", data: connected.videos[0] };
+  if (connected.audio?.[0]) return { inputType: "audio", data: connected.audio[0] };
+  if (connected.images?.[0]) return { inputType: "image", data: connected.images[0] };
+  if (connected.text) return { inputType: "text", data: connected.text };
+  return null;
+}
+
+export async function executeDropboxUpload(ctx: NodeExecutionContext): Promise<void> {
+  setLoading(ctx);
+  try {
+    const data = (ctx.getFreshNode(ctx.node.id)?.data ?? ctx.node.data) as DropboxUploadData;
+    const input = pickFirstNetworkInput(ctx);
+    if (!input) throw new Error("Dropbox Upload: connect an image / video / audio / text input first");
+
+    const folderPath = (data.parameters?.folderPath ?? data.folderPath ?? "/node-banana").trim();
+    const fileName = (data.parameters?.fileName ?? data.fileName ?? "").trim() || undefined;
+
+    // Dropbox access token is read server-side from DROPBOX_ACCESS_TOKEN.
+    // The optional X-Dropbox-API-Key header allows the user to override per
+    // node (e.g. via the Settings panel once Dropbox is added there).
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+    const response = await fetch("/api/dropbox/upload", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        inputType: input.inputType,
+        data: input.data,
+        folderPath,
+        fileName,
+      }),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+    });
+    const result = (await response.json().catch(() => ({}))) as
+      | {
+          success: true;
+          url: string;
+          path: string;
+          mimeType: string;
+          size: number;
+        }
+      | { success: false; error: string };
+
+    if (!response.ok || !("success" in result) || !result.success) {
+      const err = !("success" in result) || !result.success
+        ? ("error" in result ? result.error : `HTTP ${response.status}`)
+        : `HTTP ${response.status}`;
+      throw new Error(`Dropbox Upload failed: ${err}`);
+    }
+
+    setComplete(ctx, {
+      uploadedUrl: result.url,
+      uploadedPath: result.path,
+      uploadedContentType: result.mimeType,
+      uploadedSize: result.size,
+      outputText: result.url,
+      outputImage: input.inputType === "image" ? result.url : null,
+      outputVideo: input.inputType === "video" ? result.url : null,
+      outputAudio: input.inputType === "audio" ? result.url : null,
+      outputKind: input.inputType === "text" ? "text" : input.inputType,
+    } as Partial<WorkflowNodeData>);
+  } catch (error) {
+    fail(ctx, error);
+  }
+}
+
+interface CloudinaryUploadData {
+  cloudName?: string;
+  apiKey?: string;
+  fileName?: string;
+  parameters?: { cloudName?: string; apiKey?: string; fileName?: string };
+}
+
+export async function executeCloudinaryUpload(ctx: NodeExecutionContext): Promise<void> {
+  setLoading(ctx);
+  try {
+    const data = (ctx.getFreshNode(ctx.node.id)?.data ?? ctx.node.data) as CloudinaryUploadData;
+    const input = pickFirstNetworkInput(ctx);
+    if (!input) throw new Error("Cloudinary Upload: connect an image / video / audio / text input first");
+
+    const cloudName = (data.parameters?.cloudName ?? data.cloudName ?? "").trim();
+    const apiKey = (data.parameters?.apiKey ?? data.apiKey ?? "").trim();
+    const fileName = (data.parameters?.fileName ?? data.fileName ?? "").trim() || undefined;
+    if (!cloudName) throw new Error("Cloudinary Upload: 'Cloud Name' is required");
+    if (!apiKey) throw new Error("Cloudinary Upload: 'API Key / Upload Preset' is required");
+
+    // Cloudinary signed uploads use CLOUDINARY_API_SECRET on the server.
+    // When absent, the server falls back to unsigned upload mode using the
+    // node's apiKey as the upload_preset name (netlify convention).
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+    const response = await fetch("/api/cloudinary/upload", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        inputType: input.inputType,
+        data: input.data,
+        cloudName,
+        apiKey,
+        fileName,
+      }),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+    });
+    const result = (await response.json().catch(() => ({}))) as
+      | {
+          success: true;
+          url: string;
+          publicId: string | null;
+          resourceType: string;
+          mimeType: string;
+          size: number;
+        }
+      | { success: false; error: string };
+
+    if (!response.ok || !("success" in result) || !result.success) {
+      const err = !("success" in result) || !result.success
+        ? ("error" in result ? result.error : `HTTP ${response.status}`)
+        : `HTTP ${response.status}`;
+      throw new Error(`Cloudinary Upload failed: ${err}`);
+    }
+
+    setComplete(ctx, {
+      uploadedUrl: result.url,
+      uploadedPublicId: result.publicId,
+      uploadedResourceType: result.resourceType,
+      uploadedContentType: result.mimeType,
+      uploadedSize: result.size,
+      outputText: result.url,
+      outputImage: input.inputType === "image" ? result.url : null,
+      outputVideo: input.inputType === "video" ? result.url : null,
+      outputAudio: input.inputType === "audio" ? result.url : null,
+      outputKind: input.inputType === "text" ? "text" : input.inputType,
+    } as Partial<WorkflowNodeData>);
+  } catch (error) {
+    fail(ctx, error);
+  }
+}
+
+// Suppress "unused" warnings for helpers used only above.
+void firstConnectedText;

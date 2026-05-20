@@ -307,9 +307,9 @@ describe("FloatingActionBar", () => {
       const generateButton = screen.getByText("Generate");
       fireEvent.click(generateButton);
 
-      // Dropdown menu items should appear
-      expect(screen.getByText("Image", { selector: "button.w-full" })).toBeInTheDocument();
-      expect(screen.getByText("Video", { selector: "button.w-full" })).toBeInTheDocument();
+      // Dropdown menu items should appear (text now wrapped in <span> inside button)
+      expect(screen.getByText("Image", { selector: "button.w-full span" })).toBeInTheDocument();
+      expect(screen.getByText("Video", { selector: "button.w-full span" })).toBeInTheDocument();
       expect(screen.getByText("Text (LLM)")).toBeInTheDocument();
     });
 
@@ -328,7 +328,7 @@ describe("FloatingActionBar", () => {
       fireEvent.click(screen.getByText("Generate"));
 
       // Click Image option in dropdown
-      const imageOption = screen.getByText("Image", { selector: "button.w-full" });
+      const imageOption = screen.getByText("Image", { selector: "button.w-full span" });
       fireEvent.click(imageOption);
 
       expect(mockAddNode).toHaveBeenCalledWith("nanoBanana", expect.any(Object));
@@ -346,7 +346,7 @@ describe("FloatingActionBar", () => {
       });
 
       fireEvent.click(screen.getByText("Generate"));
-      fireEvent.click(screen.getByText("Video", { selector: "button.w-full" }));
+      fireEvent.click(screen.getByText("Video", { selector: "button.w-full span" }));
 
       expect(mockAddNode).toHaveBeenCalledWith("kling26", expect.any(Object));
     });
@@ -382,13 +382,13 @@ describe("FloatingActionBar", () => {
       fireEvent.click(screen.getByText("Generate"));
 
       // Verify dropdown is open
-      expect(screen.getByText("Video", { selector: "button.w-full" })).toBeInTheDocument();
+      expect(screen.getByText("Video", { selector: "button.w-full span" })).toBeInTheDocument();
 
       // Click an option
-      fireEvent.click(screen.getByText("Video", { selector: "button.w-full" }));
+      fireEvent.click(screen.getByText("Video", { selector: "button.w-full span" }));
 
       // Dropdown should close
-      expect(screen.queryByText("Video", { selector: "button.w-full" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Video", { selector: "button.w-full span" })).not.toBeInTheDocument();
     });
   });
 

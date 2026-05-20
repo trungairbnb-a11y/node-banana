@@ -12,6 +12,7 @@ import {
   getNetworkMenuItems,
   getGenerateMenuItems,
 } from "@/lib/nodeRegistry";
+import { NodeMenuIcon } from "@/lib/nodeIcons";
 
 // Menus — explicit ordering mirroring https://dev-x-node.netlify.app/
 const UTILITY_MENU_NODES = getUtilityMenuItems();
@@ -137,7 +138,8 @@ function GenerateComboButton() {
               onDragStart={(e) => handleDragStart(e, node.type)}
               className="w-full px-3 py-2 text-left text-[11px] font-medium text-neutral-300 hover:bg-neutral-700 hover:text-neutral-100 transition-colors flex items-center gap-2 cursor-grab active:cursor-grabbing"
             >
-              {node.label}
+              <NodeMenuIcon type={node.type} className="shrink-0 opacity-80" />
+              <span className="truncate">{node.label}</span>
             </button>
           ))}
         </div>
@@ -213,7 +215,8 @@ function UtilityNodesMenu() {
               onDragStart={(e) => handleDragStart(e, node.type)}
               className="w-full px-3 py-2 text-left text-[11px] font-medium text-neutral-300 hover:bg-neutral-700 hover:text-neutral-100 transition-colors flex items-center gap-2 cursor-grab active:cursor-grabbing"
             >
-              {node.label}
+              <NodeMenuIcon type={node.type} className="shrink-0 opacity-80" />
+              <span className="truncate">{node.label}</span>
             </button>
           ))}
         </div>
@@ -282,7 +285,8 @@ function NetworkMenu() {
               onDragStart={(e) => handleDragStart(e, node.type)}
               className="w-full px-3 py-2 text-left text-[11px] font-medium text-neutral-300 hover:bg-neutral-700 hover:text-neutral-100 transition-colors flex items-center gap-2 cursor-grab active:cursor-grabbing"
             >
-              {node.label}
+              <NodeMenuIcon type={node.type} className="shrink-0 opacity-80" />
+              <span className="truncate">{node.label}</span>
             </button>
           ))}
         </div>
