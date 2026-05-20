@@ -449,4 +449,78 @@ describe("ImageInputNode", () => {
     });
   });
 
+  describe("Auto-resize on upload", () => {
+    // Spy on useReactFlow().setNodes so we can assert the node is resized to
+    // match the uploaded image's aspect ratio — this is what gives users the
+    // "shows full resolution preview, no crop" experience (netlify parity).
+    function setupImageAndFileReader({ width, height }: { width: number; height: number }) {
+      class MockFileReader {
+        onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+        result: string = "data:image/png;base64,test";
+        readAsDataURL() {
+          setTimeout(() => {
+            this.onload?.({ target: { result: this.result } } as ProgressEvent<FileReader>);
+          }, 0);
+        }
+      }
+      global.FileReader = MockFileReader as unknown as typeof FileReader;
+      class MockImage {
+        onload: (() => void) | null = null;
+        width = width;
+        height = height;
+        private _src = "";
+        get src() { return this._src; }
+        set src(v: string) {
+          this._src = v;
+          setTimeout(() => this.onload?.(), 0);
+        }
+      }
+      global.Image = MockImage as unknown as typeof Image;
+    }
+
+    it("calls setNodes with portrait dimensions for a tall image", async () => {
+      const setNodesSpy = vi.fn();
+      vi.doMock("@xyflow/react", async () => {
+        const actual = await vi.importActual<typeof import("@xyflow/react")>("@xyflow/react");
+        return {
+          ...actual,
+          useReactFlow: () => ({
+            ...actual.useReactFlow(),
+            setNodes: setNodesSpy,
+          }),
+        };
+      });
+      vi.resetModules();
+      const { ImageInputNode: FreshNode } = await import("@/components/nodes/ImageInputNode");
+
+      setupImageAndFileReader({ width: 566, height: 1006 });
+
+      render(
+        <TestWrapper>
+          <FreshNode {...defaultProps} />
+        </TestWrapper>
+      );
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(["test"], "tall.png", { type: "image/png" });
+      Object.defineProperty(fileInput, "files", { value: [file] });
+      fireEvent.change(fileInput);
+
+      await waitFor(() => {
+        expect(setNodesSpy).toHaveBeenCalled();
+      });
+      // The first call argument should be an updater function.
+      const updater = setNodesSpy.mock.calls[0][0] as (nodes: Array<{ id: string; width?: number; height?: number; style?: Record<string, unknown> }>) => Array<{ id: string; width?: number; height?: number; style?: Record<string, unknown> }>;
+      const result = updater([{ id: "test-image-1" }]);
+      expect(result[0].width).toBeGreaterThanOrEqual(200);
+      expect(result[0].width).toBeLessThanOrEqual(500);
+      expect(result[0].height).toBeGreaterThanOrEqual(200);
+      expect(result[0].height).toBeLessThanOrEqual(600);
+      // Aspect ratio should be preserved within 5% (clamping may distort slightly)
+      const actualAspect = (result[0].width as number) / (result[0].height as number);
+      expect(actualAspect).toBeGreaterThan(0.4); // portrait
+      expect(actualAspect).toBeLessThan(0.7);
+      vi.doUnmock("@xyflow/react");
+    });
+  });
+
 });

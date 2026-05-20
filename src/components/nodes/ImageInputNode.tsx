@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import { Handle, Position, NodeProps, Node } from "@xyflow/react";
+import { Handle, Position, NodeProps, Node, useReactFlow } from "@xyflow/react";
 import { BaseNode } from "./BaseNode";
 import { useCommentNavigation } from "@/hooks/useCommentNavigation";
 import { useWorkflowStore } from "@/store/workflowStore";
@@ -10,6 +10,7 @@ import { useAdaptiveImageSrc } from "@/hooks/useAdaptiveImageSrc";
 import { downloadMedia } from "@/utils/downloadMedia";
 import { useShowHandleLabels } from "@/hooks/useShowHandleLabels";
 import { HandleLabel } from "./HandleLabel";
+import { calculateNodeSizeForFullBleed } from "@/utils/nodeDimensions";
 
 type ImageInputNodeType = Node<ImageInputNodeData, "imageInput">;
 
@@ -18,6 +19,7 @@ export function ImageInputNode({ id, data, selected }: NodeProps<ImageInputNodeT
   const adaptiveImage = useAdaptiveImageSrc(nodeData.image, id);
   const commentNavigation = useCommentNavigation(id);
   const updateNodeData = useWorkflowStore((state) => state.updateNodeData);
+  const { setNodes } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const showLabels = useShowHandleLabels(selected);
 
@@ -47,12 +49,31 @@ export function ImageInputNode({ id, data, selected }: NodeProps<ImageInputNodeT
             filename: file.name,
             dimensions: { width: img.width, height: img.height },
           });
+          // Auto-resize the node to match the uploaded image's aspect ratio
+          // so the preview shows the full image without crop. Mirrors the
+          // behavior on https://dev-x-node.netlify.app/.
+          if (img.width > 0 && img.height > 0) {
+            const aspect = img.width / img.height;
+            const size = calculateNodeSizeForFullBleed(aspect);
+            setNodes((nodes) =>
+              nodes.map((node) =>
+                node.id === id
+                  ? {
+                      ...node,
+                      width: size.width,
+                      height: size.height,
+                      style: { ...node.style, width: size.width, height: size.height },
+                    }
+                  : node
+              )
+            );
+          }
         };
         img.src = base64;
       };
       reader.readAsDataURL(file);
     },
-    [id, updateNodeData]
+    [id, updateNodeData, setNodes]
   );
 
   const handleDrop = useCallback(
@@ -108,7 +129,7 @@ export function ImageInputNode({ id, data, selected }: NodeProps<ImageInputNodeT
           <img
             src={adaptiveImage ?? undefined}
             alt={nodeData.filename || "Uploaded image"}
-            className="w-full h-full object-cover rounded-lg"
+            className="w-full h-full object-contain rounded-lg"
           />
           {nodeData.isOptional && (
             <span className="absolute bottom-2 left-2 text-[9px] font-medium text-neutral-300 bg-black/50 px-1.5 py-0.5 rounded">
