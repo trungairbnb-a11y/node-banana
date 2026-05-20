@@ -46,7 +46,9 @@ import {
   GroupColor,
   SelectedModel,
   MODEL_DISPLAY_NAMES,
+  XNodeModelNodeData,
 } from "@/types";
+import { getXNodeModel } from "@/lib/xnode/models";
 import { loadGenerateImageDefaults, loadNodeDefaults } from "./localStorage";
 
 const DEFAULT_FLOW_VIDEO_MODEL: SelectedModel = {
@@ -102,6 +104,78 @@ export const defaultNodeDimensions: Record<NodeType, { width: number; height: nu
   extractFrameCustom: { width: 340, height: 430 },
   frameComposer: { width: 340, height: 440 },
   audioEnvironment: { width: 340, height: 480 },
+  aiFaceSwap: { width: 340, height: 420 },
+  autoSubtitle: { width: 300, height: 700 },
+  cloudinaryUpload: { width: 300, height: 380 },
+  dataForward: { width: 280, height: 400 },
+  dropboxUpload: { width: 280, height: 330 },
+  dubbing: { width: 320, height: 300 },
+  dwPose: { width: 300, height: 380 },
+  dynamicFal: { width: 300, height: 280 },
+  extractFrames: { width: 300, height: 340 },
+  falBlendVideo: { width: 320, height: 460 },
+  falGptImage2Edit: { width: 340, height: 850 },
+  falHappyHorse: { width: 340, height: 560 },
+  falHyWuEdit: { width: 340, height: 680 },
+  falMergeAudioVideo: { width: 320, height: 350 },
+  falMergeAudios: { width: 340, height: 350 },
+  falMergeVideos: { width: 340, height: 500 },
+  falPixelcutBgRemoval: { width: 320, height: 440 },
+  falSmartResize: { width: 340, height: 500 },
+  falTextOutput: { width: 300, height: 280 },
+  flux2Klein9BBaseLora: { width: 340, height: 640 },
+  fluxProKontextEdit: { width: 340, height: 640 },
+  generateTTS: { width: 320, height: 380 },
+  generateTTSStitch: { width: 340, height: 580 },
+  grokImagine: { width: 340, height: 450 },
+  grokVideo: { width: 340, height: 480 },
+  happyHorse: { width: 340, height: 420 },
+  kling26: { width: 340, height: 450 },
+  klingAvatar: { width: 320, height: 380 },
+  klingMotionControl: { width: 340, height: 450 },
+  klingO1: { width: 360, height: 520 },
+  klingVideo: { width: 340, height: 480 },
+  ltx219bV2V: { width: 360, height: 580 },
+  ltx23: { width: 340, height: 520 },
+  ltx2322b: { width: 360, height: 580 },
+  ltx2322bDistilled: { width: 360, height: 580 },
+  lucy2: { width: 340, height: 620 },
+  openaiImage: { width: 340, height: 640 },
+  phota: { width: 340, height: 860 },
+  qwenImage2512Lora: { width: 360, height: 600 },
+  qwenImage2ProEdit: { width: 360, height: 860 },
+  qwenImageEdit2511Lora: { width: 360, height: 680 },
+  qwenImageEditInpaint: { width: 360, height: 900 },
+  qwenMultipleAngles: { width: 380, height: 600 },
+  reverseVideo: { width: 300, height: 320 },
+  sam31SegmentVideo: { width: 420, height: 720 },
+  sam3SegmentVideo: { width: 420, height: 680 },
+  seedVRUpscale: { width: 340, height: 380 },
+  seedance20: { width: 360, height: 660 },
+  seedreamV45Edit: { width: 360, height: 800 },
+  seedreamV5LiteEdit: { width: 360, height: 800 },
+  soundEffect: { width: 320, height: 180 },
+  topazVideoUpscale: { width: 340, height: 420 },
+  trimVideo: { width: 300, height: 390 },
+  veoVideo: { width: 340, height: 550 },
+  videoUnderstanding: { width: 340, height: 300 },
+  voiceChanger: { width: 320, height: 320 },
+  voiceIsolator: { width: 300, height: 200 },
+  wan22A14BLora: { width: 340, height: 500 },
+  wan22VaceA14b: { width: 340, height: 500 },
+  wan25I2V: { width: 340, height: 450 },
+  wan26I2V: { width: 340, height: 450 },
+  wan26R2V: { width: 340, height: 450 },
+  wanAnimateMove: { width: 340, height: 400 },
+  wanAnimateReplace: { width: 340, height: 400 },
+  wanMotion: { width: 340, height: 420 },
+  wanVisionEnhancer: { width: 340, height: 380 },
+  webhookResponse: { width: 260, height: 280 },
+  webhookTrigger: { width: 300, height: 420 },
+  xaiSpeechToText: { width: 340, height: 420 },
+  zImageTurboI2I: { width: 340, height: 580 },
+  zImageTurboInpaintLora: { width: 340, height: 740 },
+  zImageTurboLora: { width: 340, height: 640 },
 };
 
 /**
@@ -624,4 +698,17 @@ export const createDefaultNodeData = (type: NodeType): WorkflowNodeData => {
         outputKind: "audio",
       } as AudioEnvironmentNodeData;
   }
+
+  // Fallback: schema-driven defaults for nodes registered via the
+  // X-Node model registry (72 nodes reverse-engineered from the netlify
+  // bundle — see src/lib/xnode/models.ts).
+  const schema = getXNodeModel(type as string);
+  if (schema) {
+    return {
+      status: "idle",
+      error: null,
+      ...schema.defaultData,
+    } as XNodeModelNodeData;
+  }
+  return {} as WorkflowNodeData;
 };

@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import type { NodeProps } from "@xyflow/react";
 import type { NodeType, WorkflowNode, WorkflowNodeData } from "@/types";
 import { createDefaultNodeData, defaultNodeDimensions } from "@/store/utils/nodeDefaults";
+import { X_NODE_MODELS } from "@/lib/xnode/models";
 
 export type BlueprintCategory =
   | "Input"
@@ -228,6 +229,90 @@ utilityBlueprints.forEach((blueprint) => {
 });
 
 /**
+ * Auto-register X-Node model blueprints from the reverse-engineered schema
+ * registry. Each model becomes a separate node type with its own handle layout,
+ * dimensions, and minimap colour — exactly mirroring the netlify behaviour.
+ */
+function xnodeOutputResolver(modelType: string) {
+  return (node: WorkflowNode, sourceHandle?: string | null) => {
+    const d = data(node);
+    // Prefer the bucket matching the source handle's prefix.
+    if (sourceHandle?.startsWith("video") && typeof d.outputVideo === "string") {
+      return { type: "video" as const, value: d.outputVideo };
+    }
+    if (sourceHandle?.startsWith("audio") && typeof d.outputAudio === "string") {
+      return { type: "audio" as const, value: d.outputAudio };
+    }
+    if (sourceHandle?.startsWith("text") && typeof d.outputText === "string") {
+      return { type: "text" as const, value: d.outputText };
+    }
+    if (typeof d.outputImage === "string") {
+      return { type: "image" as const, value: d.outputImage };
+    }
+    if (typeof d.outputVideo === "string") {
+      return { type: "video" as const, value: d.outputVideo };
+    }
+    if (typeof d.outputAudio === "string") {
+      return { type: "audio" as const, value: d.outputAudio };
+    }
+    if (typeof d.outputText === "string") {
+      return { type: "text" as const, value: d.outputText };
+    }
+    void modelType;
+    return { type: "image" as const, value: null };
+  };
+}
+
+const xnodeMenuToCategory: Record<string, BlueprintCategory> = {
+  Generate: "Generate",
+  Utility: "Utility",
+  Network: "Utility",
+  Input: "Input",
+  Output: "Output",
+};
+
+X_NODE_MODELS.forEach((model) => {
+  registerBlueprint({
+    type: model.type as NodeType,
+    label: model.displayName,
+    category: xnodeMenuToCategory[model.menuGroup] ?? "Utility",
+    dimensions: model.dimensions,
+    handles: {
+      inputs: model.inputs.map((h) => h.id),
+      outputs: model.outputs.map((h) => h.id),
+    },
+    createData: () => createDefaultNodeData(model.type as NodeType),
+    getOutput: xnodeOutputResolver(model.type),
+    canExecute: true,
+    processorId: `xnode:${model.type}`,
+    xnode: {
+      title: model.displayName,
+      menuGroup: model.menuGroup === "Network"
+        ? "Network"
+        : model.menuGroup === "Generate"
+          ? "Generate"
+          : model.menuGroup === "Input"
+            ? "Input"
+            : model.menuGroup === "Output"
+              ? "Output"
+              : "Utility",
+      preview: model.outputs.some((h) => h.type === "video")
+        ? "video"
+        : model.outputs.some((h) => h.type === "audio")
+          ? "audio"
+          : model.outputs.some((h) => h.type === "text")
+            ? "text"
+            : "image",
+      handleLabels: Object.fromEntries(
+        [...model.inputs, ...model.outputs]
+          .filter((h) => h.label)
+          .map((h) => [h.id, h.label!] as const)
+      ),
+    },
+  });
+});
+
+/**
  * Explicit Utility menu order — mirrors https://dev-x-node.netlify.app/ exactly.
  *
  * Keeps the legacy `annotation` (Konva canvas) and 4 video utility nodes registered
@@ -261,8 +346,19 @@ export const UTILITY_MENU_ORDER: NodeType[] = [
 ];
 
 /**
- * Network menu items — placeholder labels mirroring the netlify Network menu.
- * No backing node types yet (stub buttons are disabled in the UI).
+ * Network menu items — mirrors the netlify Network menu exactly.
+ * Each entry is now a real node type backed by an X-Node blueprint.
+ */
+export const NETWORK_MENU_ORDER: NodeType[] = [
+  "webhookTrigger" as NodeType,
+  "webhookResponse" as NodeType,
+  "dataForward" as NodeType,
+  "dropboxUpload" as NodeType,
+  "cloudinaryUpload" as NodeType,
+];
+
+/**
+ * Legacy label-only export kept for tests that check menu labels directly.
  */
 export const NETWORK_MENU_LABELS: readonly string[] = [
   "Webhook Trigger",
@@ -273,6 +369,24 @@ export const NETWORK_MENU_LABELS: readonly string[] = [
 ];
 
 /**
+ * Generate menu — 7 items, exact netlify order.
+ *
+ * The netlify labels differ from the model `displayName` (e.g. `nanoBanana`
+ * displays as "Image" in this menu but "Nano Banana" elsewhere). Label
+ * overrides live alongside the menu order so the FloatingActionBar matches
+ * the netlify UI exactly.
+ */
+export const GENERATE_MENU_ORDER: Array<{ type: NodeType; label: string }> = [
+  { type: "nanoBanana", label: "Image" },
+  { type: "grokImagine" as NodeType, label: "Grok Edit" },
+  { type: "kling26" as NodeType, label: "Video" },
+  { type: "llmGenerate", label: "Text (LLM)" },
+  { type: "generateTTS" as NodeType, label: "Speech (TTS)" },
+  { type: "voiceChanger" as NodeType, label: "Voice Changer" },
+  { type: "voiceIsolator" as NodeType, label: "Voice Isolator" },
+];
+
+/**
  * Returns the ordered Utility menu entries (type + label) for the FloatingActionBar.
  * Unknown types are silently dropped.
  */
@@ -280,5 +394,25 @@ export function getUtilityMenuItems(): Array<{ type: NodeType; label: string }> 
   return UTILITY_MENU_ORDER.flatMap((type) => {
     const blueprint = getBlueprint(type);
     return blueprint ? [{ type, label: blueprint.label }] : [];
+  });
+}
+
+/**
+ * Returns the ordered Network menu entries for the FloatingActionBar.
+ */
+export function getNetworkMenuItems(): Array<{ type: NodeType; label: string }> {
+  return NETWORK_MENU_ORDER.flatMap((type) => {
+    const blueprint = getBlueprint(type);
+    return blueprint ? [{ type, label: blueprint.label }] : [];
+  });
+}
+
+/**
+ * Returns the ordered Generate menu entries for the FloatingActionBar.
+ */
+export function getGenerateMenuItems(): Array<{ type: NodeType; label: string }> {
+  return GENERATE_MENU_ORDER.flatMap(({ type, label }) => {
+    const blueprint = getBlueprint(type);
+    return blueprint ? [{ type, label }] : [];
   });
 }
