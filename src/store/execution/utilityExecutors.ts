@@ -78,6 +78,14 @@ export async function executeXNodeModelNode(ctx: NodeExecutionContext): Promise<
   const schema = getXNodeModel(ctx.node.type);
   if (!schema) {
     fail(ctx, new Error(`No X-Node schema for type ${ctx.node.type}`));
+    return;
+  }
+  // Orchestration / webhook nodes (webhookTrigger, webhookResponse, dataForward)
+  // are not API-backed — they're driven by external HTTP events and remain in
+  // 'idle' until something pokes them. Skipping silently keeps Run-all flows
+  // from showing a spurious error on these nodes.
+  if (schema.provider === "internal") {
+    return;
   }
   setLoading(ctx);
   try {
