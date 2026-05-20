@@ -136,6 +136,43 @@ describe("/api/xnode/run", () => {
     expect(genInput.model.id).toBe("fal-ai/kling-video/v2.6/pro/image-to-video");
     expect(genInput.model.provider).toBe("fal");
     expect(genInput.prompt).toBe("a dog runs through grass");
+    // kling26 has `outputs[0].type === "video"` in the schema — capabilities
+    // must reflect that so `generateWithFalQueue`'s Content-Type fallback at
+    // fal.ts:560 picks "video/mp4" instead of defaulting to "image/png".
+    expect(genInput.model.capabilities).toContain("text-to-video");
+  });
+
+  it("derives image capability from schema for image-output fal models", async () => {
+    process.env.FAL_KEY = "fake-fal-key";
+    const spy = vi
+      .spyOn(falProvider, "generateWithFalQueue")
+      .mockResolvedValue({
+        success: true,
+        outputs: [{ type: "image", data: "", url: "https://cdn.fal.ai/test.png" }],
+      });
+
+    // grokImagine outputs[0].type === "image" — should map to text-to-image
+    const res = await POST(makeRequest({ type: "grokImagine", prompt: "a cat" }));
+    expect(res.status).toBe(200);
+    const [, , genInput] = spy.mock.calls[0];
+    expect(genInput.model.capabilities).toContain("text-to-image");
+    expect(genInput.model.capabilities).not.toContain("text-to-video");
+  });
+
+  it("derives audio capability from schema for audio-output fal models", async () => {
+    process.env.FAL_KEY = "fake-fal-key";
+    const spy = vi
+      .spyOn(falProvider, "generateWithFalQueue")
+      .mockResolvedValue({
+        success: true,
+        outputs: [{ type: "audio", data: "", url: "https://cdn.fal.ai/test.mp3" }],
+      });
+
+    // falMergeAudios outputs[0].type === "audio" → should map to text-to-audio
+    const res = await POST(makeRequest({ type: "falMergeAudios", prompt: "x" }));
+    expect(res.status).toBe(200);
+    const [, , genInput] = spy.mock.calls[0];
+    expect(genInput.model.capabilities).toContain("text-to-audio");
   });
 
   it("surfaces fal.ai generation errors as 502", async () => {

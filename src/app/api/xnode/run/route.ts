@@ -32,7 +32,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { getXNodeModel } from "@/lib/xnode/models";
 import { getFalModelId } from "@/lib/xnode/falModels";
 import { generateWithFalQueue } from "@/app/api/generate/providers/fal";
-import type { GenerationInput } from "@/lib/providers/types";
+import type { GenerationInput, ModelCapability } from "@/lib/providers/types";
+
+/**
+ * Map an X-Node output handle type onto the `ModelCapability` array that
+ * `generateWithFalQueue` reads to detect video/audio/3D output when the fal
+ * CDN response lacks an explicit `Content-Type` header. Mirrors
+ * `capabilitiesForMediaType` in `/api/generate/route.ts`.
+ */
+function capabilitiesForOutputType(outputType: string | undefined): ModelCapability[] {
+  switch (outputType) {
+    case "video":
+      return ["text-to-video"];
+    case "audio":
+      return ["text-to-audio"];
+    case "3d":
+      return ["text-to-3d"];
+    default:
+      return ["text-to-image"];
+  }
+}
 
 export const maxDuration = 600;
 export const dynamic = "force-dynamic";
@@ -252,7 +271,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         id: falModelId,
         name: schema.displayName,
         provider: "fal",
-        capabilities: [],
+        capabilities: capabilitiesForOutputType(schema.outputs[0]?.type),
         description: null,
       },
       prompt,
