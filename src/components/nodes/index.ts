@@ -2,6 +2,7 @@ export { ImageInputNode } from "./ImageInputNode";
 export { AudioInputNode } from "./AudioInputNode";
 export { VideoInputNode } from "./VideoInputNode";
 export { AnnotationNode } from "./AnnotationNode";
+export { StickyNoteNode } from "./StickyNoteNode";
 export { PromptNode } from "./PromptNode";
 export { ArrayNode } from "./ArrayNode";
 export { PromptConstructorNode } from "./PromptConstructorNode";

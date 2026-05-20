@@ -27,6 +27,7 @@ import {
   AudioInputNode,
   VideoInputNode,
   AnnotationNode,
+  StickyNoteNode,
   PromptNode,
   ArrayNode,
   PromptConstructorNode,
@@ -112,6 +113,7 @@ const nodeTypes: NodeTypes = {
   audioInput: AudioInputNode,
   videoInput: VideoInputNode,
   annotation: AnnotationNode,
+  stickyNote: StickyNoteNode,
   prompt: PromptNode,
   array: ArrayNode,
   promptConstructor: PromptConstructorNode,
@@ -2229,6 +2231,8 @@ export function WorkflowCanvas() {
                 return "#c084fc"; // purple-400 (video input, distinct from generateVideo's #9333ea)
               case "annotation":
                 return "#8b5cf6";
+              case "stickyNote":
+                return "#eab308";
               case "prompt":
                 return "#f97316";
               case "array":
