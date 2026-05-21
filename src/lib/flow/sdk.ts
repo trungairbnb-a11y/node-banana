@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { sendFlowBridgeRequest, type FlowBridgeTarget } from "./bridge";
 import { runFlowLimited } from "./rateLimit";
-import type { FlowVideoMode } from "./modes";
+import type { FlowVideoMode, FlowModelTier } from "./modes";
 
 const FLOW_API_BASE = "https://aisandbox-pa.googleapis.com";
 const FLOW_API_KEY = process.env.GOOGLE_FLOW_API_KEY || "AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3pY";
@@ -9,9 +9,12 @@ const TRPC_CREATE_PROJECT = "https://labs.google/fx/api/trpc/project.createProje
 
 const ENDPOINTS = {
   generateImages: "/v1/projects/{projectId}/flowMedia:batchGenerateImages",
+  textToVideo: "/v1/video:batchAsyncGenerateVideo",
   startImageVideo: "/v1/video:batchAsyncGenerateVideoStartImage",
   startEndVideo: "/v1/video:batchAsyncGenerateVideoStartAndEndImage",
   referenceVideo: "/v1/video:batchAsyncGenerateVideoReferenceImages",
+  extendVideo: "/v1/video:batchAsyncExtendVideo",
+  editVideo: "/v1/video:batchAsyncEditVideo",
   upscaleVideo: "/v1/video:batchAsyncGenerateVideoUpsampleVideo",
   pollVideo: "/v1/video:batchCheckAsyncVideoGenerationStatus",
   uploadImage: "/v1/flow/uploadImage",
@@ -19,10 +22,25 @@ const ENDPOINTS = {
   media: "/v1/media/{mediaId}",
 };
 
-const VALID_TIERS = new Set(["PAYGATE_TIER_ONE", "PAYGATE_TIER_TWO"]);
+const VALID_TIERS = new Set(["PAYGATE_TIER_ONE", "PAYGATE_TIER_TWO", "PAYGATE_TIER_QUALITY"]);
+
+const TIER_TO_PAYGATE: Record<FlowModelTier, string> = {
+  lite: "PAYGATE_TIER_TWO",
+  fast: "PAYGATE_TIER_ONE",
+  quality: "PAYGATE_TIER_QUALITY",
+};
+
+export function resolvePaygateTier(tier?: FlowModelTier | null, accountTier?: string): string {
+  if (tier && TIER_TO_PAYGATE[tier]) return TIER_TO_PAYGATE[tier];
+  return accountTier && VALID_TIERS.has(accountTier) ? accountTier : "PAYGATE_TIER_ONE";
+}
 
 const VIDEO_MODEL_KEYS: Record<string, Record<string, Record<string, string>>> = {
   PAYGATE_TIER_ONE: {
+    "text-to-video": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_t2v",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_t2v_portrait",
+    },
     "start-image-video": {
       "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_s_fast",
       "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_s_fast_portrait",
@@ -39,8 +57,28 @@ const VIDEO_MODEL_KEYS: Record<string, Record<string, Record<string, string>>> =
       "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_r2v_fast_landscape",
       "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_r2v_fast_portrait",
     },
+    "extend-video": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_s_fast",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_s_fast_portrait",
+    },
+    "camera-control": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_s_fast",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_s_fast_portrait",
+    },
+    "insert-object": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_s_fast",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_s_fast_portrait",
+    },
+    "remove-object": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_s_fast",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_s_fast_portrait",
+    },
   },
   PAYGATE_TIER_TWO: {
+    "text-to-video": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_t2v_lite",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_t2v_lite",
+    },
     "start-image-video": {
       "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_lite_low_priority",
       "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_lite_low_priority",
@@ -56,6 +94,60 @@ const VIDEO_MODEL_KEYS: Record<string, Record<string, Record<string, string>>> =
     "reference-video": {
       "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_r2v_fast_landscape_ultra_relaxed",
       "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_r2v_fast_landscape_ultra_relaxed",
+    },
+    "extend-video": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_lite_low_priority",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_lite_low_priority",
+    },
+    "camera-control": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_lite_low_priority",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_lite_low_priority",
+    },
+    "insert-object": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_lite_low_priority",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_lite_low_priority",
+    },
+    "remove-object": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_lite_low_priority",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_lite_low_priority",
+    },
+  },
+  PAYGATE_TIER_QUALITY: {
+    "text-to-video": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_t2v_quality",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_t2v_quality",
+    },
+    "start-image-video": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_quality",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_quality",
+    },
+    "compose-start-video": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_quality",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_quality",
+    },
+    "start-end-frame": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_quality",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_quality",
+    },
+    "reference-video": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_r2v_fast_landscape",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_r2v_fast_portrait",
+    },
+    "extend-video": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_quality",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_quality",
+    },
+    "camera-control": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_quality",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_quality",
+    },
+    "insert-object": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_quality",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_quality",
+    },
+    "remove-object": {
+      "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_quality",
+      "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_quality",
     },
   },
 };
@@ -106,6 +198,7 @@ export interface FlowSubmitTrace {
   endpoint: string;
   videoModelKey?: string;
   aspectRatio?: string;
+  editMode?: string;
   requestBody: Record<string, unknown>;
 }
 
@@ -374,10 +467,15 @@ function submitVideoBody(input: {
   projectId: string;
   paygateTier: string;
   aspectRatio?: unknown;
+  duration?: number;
+  enableAudio?: boolean;
+  voice?: string;
   startMediaId?: string;
   endMediaId?: string;
   referenceMediaIds?: string[];
   seed?: unknown;
+  cameraMotion?: string;
+  cameraPosition?: string;
 }): { url: string; body: Record<string, unknown>; trace: FlowSubmitTrace } {
   const aspect = aspectToFlow(input.mode === "reference-video" ? input.aspectRatio ?? "9:16" : input.aspectRatio);
   const modelKey = resolveVideoModel(input.mode, input.paygateTier, aspect);
@@ -389,8 +487,21 @@ function submitVideoBody(input: {
     metadata: {},
   };
 
+  if (typeof input.duration === "number" && [4, 6, 8].includes(input.duration)) {
+    baseRequest.durationSeconds = input.duration;
+  }
+
+  if (input.cameraMotion) {
+    baseRequest.cameraMotion = input.cameraMotion.toUpperCase().replace(/-/g, "_");
+  }
+  if (input.cameraPosition) {
+    baseRequest.cameraPosition = input.cameraPosition.toUpperCase().replace(/-/g, "_");
+  }
+
   let endpoint = ENDPOINTS.startImageVideo;
-  if (input.mode === "reference-video") {
+  if (input.mode === "text-to-video") {
+    endpoint = ENDPOINTS.textToVideo;
+  } else if (input.mode === "reference-video") {
     endpoint = ENDPOINTS.referenceVideo;
     const referenceImages = (input.referenceMediaIds ?? []).map((mediaId) => ({
       mediaId,
@@ -405,20 +516,40 @@ function submitVideoBody(input: {
         imageInputs: referenceImages,
       };
     }
+    if (input.voice) {
+      baseRequest.voiceNarration = {
+        voiceName: input.voice.toLowerCase(),
+        enabled: true,
+      };
+    }
+  } else if (input.mode === "camera-control") {
+    if (input.endMediaId) {
+      endpoint = ENDPOINTS.startEndVideo;
+      baseRequest.startImage = { mediaId: input.startMediaId };
+      baseRequest.endImage = { mediaId: input.endMediaId };
+    } else {
+      baseRequest.startImage = { mediaId: input.startMediaId };
+    }
   } else {
-    baseRequest.startImage = { mediaId: input.startMediaId };
+    if (input.startMediaId) {
+      baseRequest.startImage = { mediaId: input.startMediaId };
+    }
     if (input.mode === "start-end-frame") {
       endpoint = ENDPOINTS.startEndVideo;
       baseRequest.endImage = { mediaId: input.endMediaId };
     }
   }
 
+  const audioFailurePreference = input.enableAudio === false
+    ? "ALLOW_SILENCED_VIDEOS"
+    : "BLOCK_SILENCED_VIDEOS";
+
   const url = buildUrl(endpoint);
   const body = {
     clientContext: clientContext(input.projectId, input.paygateTier),
     mediaGenerationContext: {
       batchId: randomUUID(),
-      audioFailurePreference: "BLOCK_SILENCED_VIDEOS",
+      audioFailurePreference,
     },
     requests: [baseRequest],
     useV2ModelConfig: true,
@@ -436,18 +567,44 @@ function submitVideoBody(input: {
   };
 }
 
+export async function generateTextToVideo(input: {
+  prompt: string;
+  projectId: string;
+  paygateTier: string;
+  aspectRatio?: unknown;
+  duration?: number;
+  enableAudio?: boolean;
+  seed?: unknown;
+  bridgeTarget?: FlowBridgeTarget;
+}): Promise<{ operationNames: string[]; workflows: FlowWorkflowRef[]; raw: unknown; trace?: FlowSubmitTrace }> {
+  const { url, body, trace } = submitVideoBody({ ...input, mode: "text-to-video" });
+  const resp: unknown = await apiRequest({
+    url,
+    method: "POST",
+    headers: API_HEADERS,
+    captchaAction: "VIDEO_GENERATION",
+    timeoutMs: 60000,
+    body,
+    bridgeTarget: input.bridgeTarget,
+  });
+  return { ...extractSubmitResult(resp), trace };
+}
+
 export async function generateReferenceVideo(input: {
   prompt: string;
   projectId: string;
   referenceMediaIds: string[];
   paygateTier: string;
   aspectRatio?: unknown;
+  duration?: number;
+  enableAudio?: boolean;
+  voice?: string;
   seed?: unknown;
   bridgeTarget?: FlowBridgeTarget;
 }): Promise<{ operationNames: string[]; workflows: FlowWorkflowRef[]; raw: unknown; trace?: FlowSubmitTrace }> {
   const { url, body, trace } = submitVideoBody({ ...input, mode: "reference-video" });
   try {
-    const resp: any = await apiRequest({
+    const resp: unknown = await apiRequest({
       url,
       method: "POST",
       headers: API_HEADERS,
@@ -468,11 +625,13 @@ export async function generateStartVideo(input: {
   startMediaId: string;
   paygateTier: string;
   aspectRatio?: unknown;
+  duration?: number;
+  enableAudio?: boolean;
   seed?: unknown;
   bridgeTarget?: FlowBridgeTarget;
 }): Promise<{ operationNames: string[]; workflows: FlowWorkflowRef[]; raw: unknown; trace?: FlowSubmitTrace }> {
   const { url, body, trace } = submitVideoBody({ ...input, mode: "start-image-video" });
-  const resp: any = await apiRequest({
+  const resp: unknown = await apiRequest({
     url,
     method: "POST",
     headers: API_HEADERS,
@@ -491,11 +650,13 @@ export async function generateStartEndVideo(input: {
   endMediaId: string;
   paygateTier: string;
   aspectRatio?: unknown;
+  duration?: number;
+  enableAudio?: boolean;
   seed?: unknown;
   bridgeTarget?: FlowBridgeTarget;
 }): Promise<{ operationNames: string[]; workflows: FlowWorkflowRef[]; raw: unknown; trace?: FlowSubmitTrace }> {
   const { url, body, trace } = submitVideoBody({ ...input, mode: "start-end-frame" });
-  const resp: any = await apiRequest({
+  const resp: unknown = await apiRequest({
     url,
     method: "POST",
     headers: API_HEADERS,
@@ -505,6 +666,136 @@ export async function generateStartEndVideo(input: {
     bridgeTarget: input.bridgeTarget,
   });
   return { ...extractSubmitResult(resp), trace };
+}
+
+export async function generateCameraControlVideo(input: {
+  prompt: string;
+  projectId: string;
+  startMediaId: string;
+  endMediaId?: string;
+  paygateTier: string;
+  aspectRatio?: unknown;
+  duration?: number;
+  enableAudio?: boolean;
+  cameraMotion?: string;
+  cameraPosition?: string;
+  seed?: unknown;
+  bridgeTarget?: FlowBridgeTarget;
+}): Promise<{ operationNames: string[]; workflows: FlowWorkflowRef[]; raw: unknown; trace?: FlowSubmitTrace }> {
+  const { url, body, trace } = submitVideoBody({ ...input, mode: "camera-control" });
+  const resp: unknown = await apiRequest({
+    url,
+    method: "POST",
+    headers: API_HEADERS,
+    captchaAction: "VIDEO_GENERATION",
+    timeoutMs: 60000,
+    body,
+    bridgeTarget: input.bridgeTarget,
+  });
+  return { ...extractSubmitResult(resp), trace };
+}
+
+export async function extendVideo(input: {
+  prompt: string;
+  projectId: string;
+  sourceMediaId: string;
+  paygateTier: string;
+  aspectRatio?: unknown;
+  seed?: unknown;
+  bridgeTarget?: FlowBridgeTarget;
+}): Promise<{ operationNames: string[]; workflows: FlowWorkflowRef[]; raw: unknown; trace?: FlowSubmitTrace }> {
+  const aspect = aspectToFlow(input.aspectRatio);
+  const modelKey = resolveVideoModel("extend-video", input.paygateTier, aspect);
+  const body = {
+    clientContext: clientContext(input.projectId, input.paygateTier),
+    mediaGenerationContext: {
+      batchId: randomUUID(),
+      audioFailurePreference: "BLOCK_SILENCED_VIDEOS",
+    },
+    requests: [
+      {
+        aspectRatio: aspect,
+        seed: typeof input.seed === "number" ? input.seed : Date.now() % 1_000_000,
+        textInput: videoTextInput(input.prompt),
+        videoModelKey: modelKey,
+        metadata: {},
+        sourceVideo: { mediaId: input.sourceMediaId },
+      },
+    ],
+    useV2ModelConfig: true,
+  };
+  const resp: unknown = await apiRequest({
+    url: buildUrl(ENDPOINTS.extendVideo),
+    method: "POST",
+    headers: API_HEADERS,
+    captchaAction: "VIDEO_GENERATION",
+    timeoutMs: 60000,
+    body,
+    bridgeTarget: input.bridgeTarget,
+  });
+  return {
+    ...extractSubmitResult(resp),
+    trace: {
+      endpoint: ENDPOINTS.extendVideo,
+      videoModelKey: modelKey,
+      aspectRatio: aspect,
+      requestBody: body,
+    },
+  };
+}
+
+export async function editVideo(input: {
+  prompt: string;
+  projectId: string;
+  sourceMediaId: string;
+  paygateTier: string;
+  editType: "insert" | "remove";
+  region?: { x: number; y: number; width: number; height: number };
+  bridgeTarget?: FlowBridgeTarget;
+}): Promise<{ operationNames: string[]; workflows: FlowWorkflowRef[]; raw: unknown; trace?: FlowSubmitTrace }> {
+  const editMode = input.editType === "insert"
+    ? "VIDEO_EDIT_MODE_INSERT_OBJECT"
+    : "VIDEO_EDIT_MODE_REMOVE_OBJECT";
+  const body: Record<string, unknown> = {
+    clientContext: clientContext(input.projectId, input.paygateTier),
+    mediaGenerationContext: {
+      batchId: randomUUID(),
+      audioFailurePreference: "BLOCK_SILENCED_VIDEOS",
+    },
+    requests: [
+      {
+        textInput: videoTextInput(input.prompt),
+        videoInput: { mediaId: input.sourceMediaId },
+        editMode,
+        metadata: {},
+        ...(input.region ? {
+          boundingBox: {
+            x: input.region.x,
+            y: input.region.y,
+            width: input.region.width,
+            height: input.region.height,
+          },
+        } : {}),
+      },
+    ],
+  };
+  const resp: unknown = await apiRequest({
+    url: buildUrl(ENDPOINTS.editVideo),
+    method: "POST",
+    headers: API_HEADERS,
+    captchaAction: "VIDEO_GENERATION",
+    timeoutMs: 60000,
+    body,
+    bridgeTarget: input.bridgeTarget,
+  });
+  return {
+    ...extractSubmitResult(resp),
+    trace: {
+      endpoint: ENDPOINTS.editVideo,
+      editMode,
+      requestBody: body,
+    },
+  };
 }
 
 export async function upscaleVideo(input: {
