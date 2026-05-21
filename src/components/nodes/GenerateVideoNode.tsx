@@ -22,6 +22,7 @@ import { downloadMedia } from "@/utils/downloadMedia";
 import { useShowHandleLabels } from "@/hooks/useShowHandleLabels";
 import { HandleLabel } from "./HandleLabel";
 import { buildFlowParametersForModel, DEFAULT_FLOW_MODEL, getFlowSchemaForModel, FLOW_MODELS } from "@/lib/flow/modes";
+import { FlowModeSuggestions } from "./FlowModeSuggestions";
 import { GenerationTraceModal } from "@/components/modals/GenerationTraceModal";
 
 // Video generation capabilities
@@ -261,6 +262,23 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
   const handleFlowModeChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const model = FLOW_MODELS.find((candidate) => candidate.id === e.target.value);
+      if (!model) return;
+      updateNodeData(id, {
+        selectedModel: {
+          provider: "flow",
+          modelId: model.id,
+          displayName: model.name,
+        },
+        parameters: buildFlowParametersForModel(model.id, nodeData.parameters || {}),
+        inputSchema: buildFlowInputSchema(model.id),
+      });
+    },
+    [id, nodeData.parameters, updateNodeData]
+  );
+
+  const handleFlowModeSwitch = useCallback(
+    (newModelId: string) => {
+      const model = FLOW_MODELS.find((candidate) => candidate.id === newModelId);
       if (!model) return;
       updateNodeData(id, {
         selectedModel: {
@@ -676,6 +694,14 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
                   </option>
                 ))}
               </select>
+              {nodeData.selectedModel?.modelId && (
+                <FlowModeSuggestions
+                  modelId={nodeData.selectedModel.modelId}
+                  parameters={nodeData.parameters || {}}
+                  onParametersChange={handleParametersChange}
+                  onModeChange={handleFlowModeSwitch}
+                />
+              )}
             </div>
           )}
 
