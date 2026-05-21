@@ -138,7 +138,13 @@ describe("PaneContextMenu", () => {
       fireEvent.keyDown(document, { key: "Enter" });
       const [type, , initialData] = onSelect.mock.calls[0];
       expect(type).toBe("nanoBanana");
-      expect(initialData).toEqual({ model: "nano-banana" });
+      // Regression guard (Devin Review on PR #9): both the legacy `model`
+      // field AND `selectedModel.modelId` must be set so the execution path
+      // can't silently fall back to the user's stored default model.
+      expect(initialData).toEqual({
+        model: "nano-banana",
+        selectedModel: { provider: "gemini", modelId: "nano-banana", displayName: "Nano Banana" },
+      });
     });
 
     it("ArrowUp wraps from the first item to the last", () => {

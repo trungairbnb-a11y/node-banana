@@ -3,23 +3,43 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ImageInputNode } from "@/components/nodes/ImageInputNode";
 import { ReactFlowProvider } from "@xyflow/react";
 
-// Mock the workflow store
-const mockUpdateNodeData = vi.fn();
+// Zustand exposes setState on the store hook itself (e.g. `useStore.setState(...)`).
+// Production code in ImageInputNode calls `useWorkflowStore.setState(...)` for
+// atomic data+dimensions updates, so the mock must expose a callable setState.
+// NOTE: vi.mock is hoisted, so the factory cannot reference top-level vars.
+// We attach setState onto the mock fn inline, then expose it via getter helpers.
+vi.mock("@/store/workflowStore", () => {
+  const mockUpdate = vi.fn();
+  const mockSet = vi.fn();
+  const useStore = Object.assign(
+    vi.fn((selector: (state: unknown) => unknown) => {
+      const state = {
+        updateNodeData: mockUpdate,
+        currentNodeIds: [],
+        groups: {},
+        nodes: [],
+        getNodesWithComments: vi.fn(() => []),
+        markCommentViewed: vi.fn(),
+        setNavigationTarget: vi.fn(),
+      };
+      return selector(state);
+    }),
+    { setState: mockSet, __mockUpdate: mockUpdate, __mockSet: mockSet }
+  );
+  return { useWorkflowStore: useStore };
+});
 
-vi.mock("@/store/workflowStore", () => ({
-  useWorkflowStore: vi.fn((selector) => {
-    const state = {
-      updateNodeData: mockUpdateNodeData,
-      currentNodeIds: [],
-      groups: {},
-      nodes: [],
-      getNodesWithComments: vi.fn(() => []),
-      markCommentViewed: vi.fn(),
-      setNavigationTarget: vi.fn(),
-    };
-    return selector(state);
-  }),
-}));
+// Helpers to access the mock instances from inside tests.
+async function getMocks() {
+  const mod = (await import("@/store/workflowStore")) as unknown as {
+    useWorkflowStore: { __mockUpdate: ReturnType<typeof vi.fn>; __mockSet: ReturnType<typeof vi.fn> };
+  };
+  return { mockUpdateNodeData: mod.useWorkflowStore.__mockUpdate, mockSetState: mod.useWorkflowStore.__mockSet };
+}
+
+// Back-compat alias for older tests that referenced this directly.
+let mockUpdateNodeData!: ReturnType<typeof vi.fn>;
+let mockSetState!: ReturnType<typeof vi.fn>;
 
 // Mock alert
 const mockAlert = vi.fn();
@@ -53,8 +73,11 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe("ImageInputNode", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    const m = await getMocks();
+    mockUpdateNodeData = m.mockUpdateNodeData;
+    mockSetState = m.mockSetState;
   });
 
   afterEach(() => {
@@ -149,7 +172,7 @@ describe("ImageInputNode", () => {
   });
 
   describe("File Input Change Handler", () => {
-    it("should process valid image file and call updateNodeData", async () => {
+    it("should process valid image file and atomically set data + dimensions via setState", async () => {
       // Mock FileReader as a class
       let mockOnload: ((event: ProgressEvent<FileReader>) => void) | null = null;
       const mockReadAsDataURL = vi.fn();
@@ -202,13 +225,19 @@ describe("ImageInputNode", () => {
       fireEvent.change(fileInput);
 
       await waitFor(() => {
-        expect(mockUpdateNodeData).toHaveBeenCalledWith("test-image-1", {
-          image: "data:image/png;base64,test123",
-          imageRef: undefined,
-          filename: "test.png",
-          dimensions: { width: 1024, height: 768 },
-        });
+        expect(mockSetState).toHaveBeenCalled();
       });
+      // The setState call must include the image, filename, and dimensions
+      // alongside the new node width/height — all in a single atomic mutation.
+      type SeedNode = { id: string; width?: number; height?: number; data?: Record<string, unknown>; style?: Record<string, unknown> };
+      type Updater = (s: { nodes: SeedNode[] }) => { nodes: SeedNode[] };
+      const updater = mockSetState.mock.calls[0][0] as Updater;
+      const result = updater({ nodes: [{ id: "test-image-1", data: { image: null, filename: null, dimensions: null } }] });
+      expect(result.nodes[0].data?.image).toBe("data:image/png;base64,test123");
+      expect(result.nodes[0].data?.filename).toBe("test.png");
+      expect(result.nodes[0].data?.dimensions).toEqual({ width: 1024, height: 768 });
+      expect(result.nodes[0].width).toBeGreaterThan(0);
+      expect(result.nodes[0].height).toBeGreaterThan(0);
     });
 
     it("should reject non-image file types", () => {
@@ -450,9 +479,12 @@ describe("ImageInputNode", () => {
   });
 
   describe("Auto-resize on upload", () => {
-    // Spy on useReactFlow().setNodes so we can assert the node is resized to
-    // match the uploaded image's aspect ratio — this is what gives users the
-    // "shows full resolution preview, no crop" experience (netlify parity).
+    // Verify that uploading an image triggers an atomic Zustand setState
+    // that updates BOTH the node dimensions AND the image data in a single
+    // mutation. This prevents the race condition where useReactFlow().setNodes
+    // would write back a stale node snapshot and wipe the just-set image.
+    // This is what gives users the "shows full resolution preview, no crop"
+    // experience (netlify parity).
     function setupImageAndFileReader({ width, height }: { width: number; height: number }) {
       class MockFileReader {
         onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
@@ -478,26 +510,13 @@ describe("ImageInputNode", () => {
       global.Image = MockImage as unknown as typeof Image;
     }
 
-    it("calls setNodes with portrait dimensions for a tall image", async () => {
-      const setNodesSpy = vi.fn();
-      vi.doMock("@xyflow/react", async () => {
-        const actual = await vi.importActual<typeof import("@xyflow/react")>("@xyflow/react");
-        return {
-          ...actual,
-          useReactFlow: () => ({
-            ...actual.useReactFlow(),
-            setNodes: setNodesSpy,
-          }),
-        };
-      });
-      vi.resetModules();
-      const { ImageInputNode: FreshNode } = await import("@/components/nodes/ImageInputNode");
-
+    it("atomically updates dimensions AND image data via Zustand setState for portrait upload", async () => {
+      mockSetState.mockClear();
       setupImageAndFileReader({ width: 566, height: 1006 });
 
       render(
         <TestWrapper>
-          <FreshNode {...defaultProps} />
+          <ImageInputNode {...defaultProps} />
         </TestWrapper>
       );
       const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -506,20 +525,32 @@ describe("ImageInputNode", () => {
       fireEvent.change(fileInput);
 
       await waitFor(() => {
-        expect(setNodesSpy).toHaveBeenCalled();
+        expect(mockSetState).toHaveBeenCalled();
       });
-      // The first call argument should be an updater function.
-      const updater = setNodesSpy.mock.calls[0][0] as (nodes: Array<{ id: string; width?: number; height?: number; style?: Record<string, unknown> }>) => Array<{ id: string; width?: number; height?: number; style?: Record<string, unknown> }>;
-      const result = updater([{ id: "test-image-1" }]);
-      expect(result[0].width).toBeGreaterThanOrEqual(200);
-      expect(result[0].width).toBeLessThanOrEqual(500);
-      expect(result[0].height).toBeGreaterThanOrEqual(200);
-      expect(result[0].height).toBeLessThanOrEqual(600);
-      // Aspect ratio should be preserved within 5% (clamping may distort slightly)
-      const actualAspect = (result[0].width as number) / (result[0].height as number);
-      expect(actualAspect).toBeGreaterThan(0.4); // portrait
+
+      // Invoke the updater fn with a synthetic node array and assert that
+      // the resulting node has BOTH the new dimensions AND the image data.
+      type SeedNode = { id: string; width?: number; height?: number; data?: Record<string, unknown>; style?: Record<string, unknown> };
+      type Updater = (state: { nodes: SeedNode[] }) => { nodes: SeedNode[] };
+      const updater = mockSetState.mock.calls[0][0] as Updater;
+      const seed = { nodes: [{ id: "test-image-1", data: { image: null, filename: null, dimensions: null } }] };
+      const result = updater(seed);
+      const updated = result.nodes[0];
+
+      // Dimensions: portrait aspect ratio preserved within constraints.
+      expect(updated.width).toBeGreaterThanOrEqual(200);
+      expect(updated.width).toBeLessThanOrEqual(500);
+      expect(updated.height).toBeGreaterThanOrEqual(200);
+      expect(updated.height).toBeLessThanOrEqual(600);
+      const actualAspect = (updated.width as number) / (updated.height as number);
+      expect(actualAspect).toBeGreaterThan(0.4);
       expect(actualAspect).toBeLessThan(0.7);
-      vi.doUnmock("@xyflow/react");
+
+      // Data: image MUST be set in the same atomic update — regression guard
+      // against the race condition with React Flow's setNodes.
+      expect(updated.data?.image).toBe("data:image/png;base64,test");
+      expect(updated.data?.filename).toBe("tall.png");
+      expect(updated.data?.dimensions).toEqual({ width: 566, height: 1006 });
     });
   });
 

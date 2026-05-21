@@ -50,17 +50,30 @@ const QUICK_ADD_ITEMS: PaneContextMenuItem[] = [
   {
     type: "nanoBanana" as NodeType,
     label: "Nano Banana",
-    initialData: { model: "nano-banana" } as Partial<WorkflowNodeData>,
+    // Both legacy `model` AND new `selectedModel` MUST be set: the execution
+    // path (nanoBananaExecutor) and the API route prefer `selectedModel.modelId`
+    // over the legacy `model` field, so without `selectedModel` the user's
+    // stored default (often "nano-banana-pro") would silently win.
+    initialData: {
+      model: "nano-banana",
+      selectedModel: { provider: "gemini", modelId: "nano-banana", displayName: "Nano Banana" },
+    } as Partial<WorkflowNodeData>,
   },
   {
     type: "nanoBanana" as NodeType,
     label: "Nano Banana Pro",
-    initialData: { model: "nano-banana-pro" } as Partial<WorkflowNodeData>,
+    initialData: {
+      model: "nano-banana-pro",
+      selectedModel: { provider: "gemini", modelId: "nano-banana-pro", displayName: "Nano Banana Pro" },
+    } as Partial<WorkflowNodeData>,
   },
   {
     type: "nanoBanana" as NodeType,
     label: "Nano Banana 2",
-    initialData: { model: "nano-banana-2" } as Partial<WorkflowNodeData>,
+    initialData: {
+      model: "nano-banana-2",
+      selectedModel: { provider: "gemini", modelId: "nano-banana-2", displayName: "Nano Banana 2" },
+    } as Partial<WorkflowNodeData>,
   },
   { type: "extractFrames" as NodeType },
   { type: "reverseVideo" as NodeType },

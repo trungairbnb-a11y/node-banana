@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import { Handle, Position, NodeProps, Node, useReactFlow } from "@xyflow/react";
+import { Handle, Position, NodeProps, Node } from "@xyflow/react";
 import { BaseNode } from "./BaseNode";
 import { useCommentNavigation } from "@/hooks/useCommentNavigation";
 import { useWorkflowStore } from "@/store/workflowStore";
-import { ImageInputNodeData } from "@/types";
+import { ImageInputNodeData, WorkflowNode } from "@/types";
 import { useAdaptiveImageSrc } from "@/hooks/useAdaptiveImageSrc";
 import { downloadMedia } from "@/utils/downloadMedia";
 import { useShowHandleLabels } from "@/hooks/useShowHandleLabels";
@@ -19,7 +19,6 @@ export function ImageInputNode({ id, data, selected }: NodeProps<ImageInputNodeT
   const adaptiveImage = useAdaptiveImageSrc(nodeData.image, id);
   const commentNavigation = useCommentNavigation(id);
   const updateNodeData = useWorkflowStore((state) => state.updateNodeData);
-  const { setNodes } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const showLabels = useShowHandleLabels(selected);
 
@@ -43,37 +42,46 @@ export function ImageInputNode({ id, data, selected }: NodeProps<ImageInputNodeT
         const base64 = event.target?.result as string;
         const img = new Image();
         img.onload = () => {
-          updateNodeData(id, {
+          const dataUpdates: Partial<ImageInputNodeData> = {
             image: base64,
             imageRef: undefined,
             filename: file.name,
             dimensions: { width: img.width, height: img.height },
-          });
+          };
+
           // Auto-resize the node to match the uploaded image's aspect ratio
           // so the preview shows the full image without crop. Mirrors the
-          // behavior on https://dev-x-node.netlify.app/.
+          // behavior on https://dev-x-node.netlify.app/. We update data and
+          // dimensions atomically through Zustand to avoid a race between
+          // updateNodeData() (Zustand) and useReactFlow().setNodes (React
+          // Flow internal store) where the latter would replay a stale node
+          // snapshot and wipe the just-set image.
           if (img.width > 0 && img.height > 0) {
             const aspect = img.width / img.height;
             const size = calculateNodeSizeForFullBleed(aspect);
-            setNodes((nodes) =>
-              nodes.map((node) =>
+            useWorkflowStore.setState((state) => ({
+              nodes: state.nodes.map((node) =>
                 node.id === id
-                  ? {
+                  ? ({
                       ...node,
                       width: size.width,
                       height: size.height,
                       style: { ...node.style, width: size.width, height: size.height },
-                    }
+                      data: { ...node.data, ...dataUpdates } as ImageInputNodeData,
+                    } as WorkflowNode)
                   : node
-              )
-            );
+              ),
+              hasUnsavedChanges: true,
+            }));
+          } else {
+            updateNodeData(id, dataUpdates);
           }
         };
         img.src = base64;
       };
       reader.readAsDataURL(file);
     },
-    [id, updateNodeData, setNodes]
+    [id, updateNodeData]
   );
 
   const handleDrop = useCallback(
