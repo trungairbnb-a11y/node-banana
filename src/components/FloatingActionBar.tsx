@@ -18,6 +18,15 @@ import { NodeMenuIcon } from "@/lib/nodeIcons";
 const UTILITY_MENU_NODES = getUtilityMenuItems();
 const NETWORK_MENU_NODES = getNetworkMenuItems();
 const GENERATE_MENU_NODES = getGenerateMenuItems();
+const PROCESS_MENU_NODES: Array<{ type: NodeType; label: string }> = [
+  { type: "annotation", label: "Annotate (Local)" },
+  { type: "splitGrid", label: "Split Grid (Local)" },
+  { type: "videoStitch", label: "Video Stitch (Local)" },
+  { type: "videoTrim", label: "Video Trim (Local)" },
+  { type: "easeCurve", label: "Ease Curve (Local)" },
+  { type: "videoFrameGrab", label: "Frame Grab (Local)" },
+  { type: "imageCompare", label: "Image Compare (Local)" },
+];
 
 // Get the center of the React Flow pane in screen coordinates
 function getPaneCenter() {
@@ -214,6 +223,84 @@ function UtilityNodesMenu() {
               onClick={() => handleAddNode(node.type)}
               draggable
               onDragStart={(e) => handleDragStart(e, node.type)}
+              className="w-full px-3 py-2 text-left text-[11px] font-medium text-neutral-300 hover:bg-neutral-700 hover:text-neutral-100 transition-colors flex items-center gap-2 cursor-grab active:cursor-grabbing"
+            >
+              <NodeMenuIcon type={node.type} className="shrink-0 opacity-80" />
+              <span className="truncate">{node.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProcessMenu() {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const addNode = useWorkflowStore((state) => state.addNode);
+  const { screenToFlowPosition } = useReactFlow();
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const handleAddNode = useCallback((type: NodeType) => {
+    const center = getPaneCenter();
+    const position = screenToFlowPosition({
+      x: center.x + Math.random() * 100 - 50,
+      y: center.y + Math.random() * 100 - 50,
+    });
+
+    addNode(type, position);
+    setIsOpen(false);
+  }, [addNode, screenToFlowPosition]);
+
+  const handleDragStart = useCallback((event: React.DragEvent, type: NodeType) => {
+    event.dataTransfer.setData("application/node-type", type);
+    event.dataTransfer.effectAllowed = "copy";
+    setIsOpen(false);
+  }, []);
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="px-2.5 py-1.5 text-[11px] font-medium text-neutral-400 hover:text-neutral-100 hover:bg-neutral-700 rounded transition-colors flex items-center gap-1"
+      >
+        Process
+        <svg
+          className={`w-3 h-3 transition-transform ${isOpen ? "rotate-180" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className="absolute bottom-full left-0 mb-2 bg-neutral-800 border border-neutral-600 rounded-lg shadow-xl overflow-hidden min-w-[190px] max-h-[400px] overflow-y-auto">
+          {PROCESS_MENU_NODES.map((node) => (
+            <button
+              key={node.type}
+              onClick={() => handleAddNode(node.type)}
+              draggable
+              onDragStart={(e) => handleDragStart(e, node.type)}
+              title={`${node.label}: runs locally without model API calls`}
               className="w-full px-3 py-2 text-left text-[11px] font-medium text-neutral-300 hover:bg-neutral-700 hover:text-neutral-100 transition-colors flex items-center gap-2 cursor-grab active:cursor-grabbing"
             >
               <NodeMenuIcon type={node.type} className="shrink-0 opacity-80" />
@@ -471,6 +558,7 @@ export function FloatingActionBar() {
         <NodeButton type="imageInput" label="Image" dataTutorial="image-button" />
         <NodeButton type="prompt" label="Prompt" dataTutorial="prompt-button" />
         <GenerateComboButton />
+        <ProcessMenu />
         <UtilityNodesMenu />
         <NetworkMenu />
 

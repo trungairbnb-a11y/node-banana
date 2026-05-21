@@ -26,9 +26,10 @@ import {
   useRef,
   useState,
 } from "react";
+import type { XYPosition } from "@xyflow/react";
 import { NodeMenuIcon } from "@/lib/nodeIcons";
 import { getBlueprint, getBlueprints, type NodeBlueprint } from "@/lib/nodeRegistry";
-import type { NodeType, WorkflowNodeData, XYPosition } from "@/types";
+import type { NodeType, WorkflowNodeData } from "@/types";
 
 export interface PaneContextMenuItem {
   type: NodeType;

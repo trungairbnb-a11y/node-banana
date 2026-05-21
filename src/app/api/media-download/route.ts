@@ -13,6 +13,12 @@ interface MediaDownloadRequest {
   quality?: "best" | "1080p" | "720p" | "480p" | "medium" | "low";
 }
 
+interface YtDlpResolveResult {
+  resolvedUrl: string | null;
+  error?: string;
+  missingBinary?: boolean;
+}
+
 function isHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -38,7 +44,7 @@ async function resolveWithYtDlp(
   url: string,
   format: "video" | "audio",
   quality: NonNullable<MediaDownloadRequest["quality"]>
-): Promise<string | null> {
+): Promise<YtDlpResolveResult> {
   try {
     const { stdout } = await execFileAsync(
       "yt-dlp",
@@ -49,9 +55,20 @@ async function resolveWithYtDlp(
       .split(/\r?\n/)
       .map((line) => line.trim())
       .find((line) => isHttpUrl(line));
-    return resolved ?? null;
-  } catch {
-    return null;
+    return { resolvedUrl: resolved ?? null };
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      return {
+        resolvedUrl: null,
+        missingBinary: true,
+        error: "yt-dlp is not installed. Install it with `brew install yt-dlp` or `python -m pip install -U yt-dlp`, then retry Media Download.",
+      };
+    }
+    return {
+      resolvedUrl: null,
+      error: error instanceof Error ? error.message : "yt-dlp failed to resolve this URL",
+    };
   }
 }
 
@@ -99,13 +116,20 @@ export async function POST(request: NextRequest) {
     let targetUrl = url;
     const directExtension = /\.(mp4|webm|mov|m4v|mp3|wav|ogg|m4a|flac)(\?|$)/i.test(url);
     if (!directExtension) {
-      targetUrl = (await resolveWithYtDlp(url, format, quality)) ?? url;
+      const resolved = await resolveWithYtDlp(url, format, quality);
+      if (resolved.missingBinary) {
+        return NextResponse.json({ error: resolved.error }, { status: 500 });
+      }
+      targetUrl = resolved.resolvedUrl ?? url;
     }
 
     const media = await fetchMedia(targetUrl);
     if (!media.contentType.startsWith("audio/") && !media.contentType.startsWith("video/")) {
       return NextResponse.json(
-        { error: "URL did not resolve to audio/video media. Install yt-dlp for page URLs." },
+        {
+          error:
+            "URL did not resolve to audio/video media. Page URLs require yt-dlp; install or update it with `brew install yt-dlp` or `python -m pip install -U yt-dlp`.",
+        },
         { status: 422 }
       );
     }
