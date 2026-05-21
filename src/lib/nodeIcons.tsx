@@ -241,6 +241,19 @@ const ICONS: Record<string, (p: IconProps) => ReactNode> = {
       <path d="M16 16l-4-4-4 4" />
     </Svg>
   ),
+  // Top-bar buttons — netlify shows an icon prefix on Image and Prompt
+  imageInput: (p) => (
+    <Svg className={p.className}>
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+    </Svg>
+  ),
+  prompt: (p) => (
+    <Svg className={p.className}>
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </Svg>
+  ),
 };
 
 /**

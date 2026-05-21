@@ -64,8 +64,9 @@ function NodeButton({ type, label, dataTutorial }: NodeButtonProps) {
       draggable
       onDragStart={handleDragStart}
       data-tutorial={dataTutorial}
-      className="px-2.5 py-1.5 text-[11px] font-medium text-neutral-400 hover:text-neutral-100 hover:bg-neutral-700 rounded transition-colors cursor-grab active:cursor-grabbing"
+      className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium text-neutral-400 hover:text-neutral-100 hover:bg-neutral-700 rounded transition-colors cursor-grab active:cursor-grabbing"
     >
+      <NodeMenuIcon type={type} className="opacity-70" />
       {label}
     </button>
   );
