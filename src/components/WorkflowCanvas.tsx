@@ -60,7 +60,8 @@ import { MultiSelectToolbar } from "./MultiSelectToolbar";
 import { EdgeToolbar } from "./EdgeToolbar";
 import { GlobalImageHistory } from "./GlobalImageHistory";
 import { GroupBackgroundsPortal, GroupControlsOverlay } from "./GroupsOverlay";
-import { NodeType, NanoBananaNodeData, HandleType, PromptNodeData, LLMGenerateNodeData, PromptConstructorNodeData, AvailableVariable } from "@/types";
+import { NodeType, NanoBananaNodeData, HandleType, PromptNodeData, LLMGenerateNodeData, PromptConstructorNodeData, AvailableVariable, WorkflowNodeData } from "@/types";
+import { PaneContextMenu } from "@/components/PaneContextMenu";
 import { defaultNodeDimensions } from "@/store/utils/nodeDefaults";
 import { FloatingNodeHeader } from "./nodes/FloatingNodeHeader";
 import { ControlPanel } from "./nodes/ControlPanel";
@@ -378,6 +379,11 @@ export function WorkflowCanvas() {
   const [showNewProjectSetup, setShowNewProjectSetup] = useState(false);
   const [showRetargetModels, setShowRetargetModels] = useState(false);
   const [expandingNode, setExpandingNode] = useState<{ id: string; type: string } | null>(null);
+  // Right-click "Quick Add" context menu on the React Flow pane — netlify parity.
+  const [paneContextMenu, setPaneContextMenu] = useState<
+    | { position: { x: number; y: number }; flowPosition: { x: number; y: number } }
+    | null
+  >(null);
 
   // Fallback model picker state
   const [fallbackDialogState, setFallbackDialogState] = useState<
@@ -1484,6 +1490,42 @@ export function WorkflowCanvas() {
     setConnectionDrop(null);
   }, []);
 
+  // Right-click on the React Flow pane opens a searchable Quick Add menu —
+  // mirrors https://dev-x-node.netlify.app/ behavior. Modal-open state and
+  // tutorial mode suppress the menu so they don't fight overlays.
+  const handlePaneContextMenu = useCallback(
+    (event: React.MouseEvent | MouseEvent) => {
+      if (isModalOpen || tutorialActive) return;
+      event.preventDefault();
+      const flowPosition = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      setPaneContextMenu({
+        position: { x: event.clientX, y: event.clientY },
+        flowPosition,
+      });
+    },
+    [isModalOpen, tutorialActive, screenToFlowPosition]
+  );
+
+  const handleClosePaneContextMenu = useCallback(() => {
+    setPaneContextMenu(null);
+  }, []);
+
+  const handleSelectPaneContextNode = useCallback(
+    (
+      type: NodeType,
+      flowPosition: { x: number; y: number },
+      initialData?: Partial<WorkflowNodeData>
+    ) => {
+      const dimensions = defaultNodeDimensions[type] ?? { width: 280, height: 200 };
+      const position = {
+        x: flowPosition.x - dimensions.width / 2,
+        y: flowPosition.y - dimensions.height / 2,
+      };
+      addNode(type, position, initialData);
+    },
+    [addNode]
+  );
+
   // Get copy/paste functions and clipboard from store
   const copySelectedNodes = useWorkflowStore((state) => state.copySelectedNodes);
   const pasteNodes = useWorkflowStore((state) => state.pasteNodes);
@@ -2148,6 +2190,8 @@ export function WorkflowCanvas() {
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
         onConnectEnd={handleConnectEnd}
+        onPaneContextMenu={handlePaneContextMenu}
+        onPaneClick={handleClosePaneContextMenu}
         onMoveStart={() => { isPanningRef.current = true; setHoveredNodeId(null); document.documentElement.classList.add("canvas-interacting"); }}
         onMoveEnd={() => { isPanningRef.current = false; document.documentElement.classList.remove("canvas-interacting"); }}
         onNodeDragStart={() => { isDraggingNodeRef.current = true; document.documentElement.classList.add("canvas-interacting"); }}
@@ -2420,6 +2464,16 @@ export function WorkflowCanvas() {
           connectionType={connectionDrop.connectionType}
           onSelect={handleMenuSelect}
           onClose={handleCloseDropMenu}
+        />
+      )}
+
+      {/* Right-click Quick Add menu (netlify parity) */}
+      {paneContextMenu && (
+        <PaneContextMenu
+          position={paneContextMenu.position}
+          flowPosition={paneContextMenu.flowPosition}
+          onSelect={handleSelectPaneContextNode}
+          onClose={handleClosePaneContextMenu}
         />
       )}
 

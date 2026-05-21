@@ -762,6 +762,134 @@ describe("ModelSearchDialog", () => {
     });
   });
 
+  describe("Cache Bypass on First Open (netlify-parity stale cache fix)", () => {
+    // The fix: bump the localStorage key to v2 + reduce TTL to 1 h + bypass
+    // the cache the very first time the modal opens in each page session.
+    // This avoids the "modal shows 12 stale models, refresh button then yields
+    // 1000+" UX bug.
+    const CACHE_KEY_V1 = "node-banana-models-cache"; // old (now ignored)
+    const CACHE_KEY_V2 = "node-banana-models-cache-v2";
+    const SESSION_BYPASS_KEY = "node-banana-models-cache-bypassed-v2";
+
+    // Cache key shape inside ModelSearchDialog is
+    // `${providerFilter}:${capabilityFilter}:${debouncedSearch}` so with the
+    // default open ("all" provider, "all" capability, no search) it's "all:all:".
+    const CACHE_INNER_KEY = "all:all:";
+
+    it("ignores entries written under the old v1 cache key (version bump invalidates them)", async () => {
+      // Seed only the old key with a stale list of 1 model.
+      localStorage.setItem(
+        CACHE_KEY_V1,
+        JSON.stringify({
+          [CACHE_INNER_KEY]: {
+            models: [
+              {
+                id: "stale/old-model",
+                name: "Stale Old Model",
+                description: "should not appear",
+                provider: "fal",
+                capabilities: ["text-to-image"],
+              },
+            ],
+            timestamp: Date.now(),
+          },
+        })
+      );
+      sessionStorage.removeItem(SESSION_BYPASS_KEY);
+
+      render(
+        <TestWrapper>
+          <ModelSearchDialog isOpen={true} onClose={vi.fn()} />
+        </TestWrapper>
+      );
+
+      // Must fetch fresh (cache miss under v2 key) → server returns sampleModels
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(screen.getByText("FLUX.1 Dev")).toBeInTheDocument();
+        expect(screen.queryByText("Stale Old Model")).not.toBeInTheDocument();
+      });
+    });
+
+    it("bypasses a fresh v2 cache entry on the FIRST open of the session", async () => {
+      // Seed the new v2 key with stale data. Even though the entry is fresh
+      // (within TTL), the first-open bypass should force a refetch.
+      localStorage.setItem(
+        CACHE_KEY_V2,
+        JSON.stringify({
+          [CACHE_INNER_KEY]: {
+            models: [
+              {
+                id: "stale/cached-model",
+                name: "Stale Cached Model",
+                description: "from localStorage",
+                provider: "fal",
+                capabilities: ["text-to-image"],
+              },
+            ],
+            timestamp: Date.now(),
+          },
+        })
+      );
+      sessionStorage.removeItem(SESSION_BYPASS_KEY);
+
+      render(
+        <TestWrapper>
+          <ModelSearchDialog isOpen={true} onClose={vi.fn()} />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(screen.getByText("FLUX.1 Dev")).toBeInTheDocument();
+        expect(screen.queryByText("Stale Cached Model")).not.toBeInTheDocument();
+      });
+
+      // The bypass flag should now be set so subsequent opens use the cache.
+      expect(sessionStorage.getItem(SESSION_BYPASS_KEY)).toBe("1");
+    });
+
+    it("uses a fresh v2 cache entry on the SECOND open of the session", async () => {
+      // Pre-mark the bypass-once flag as already consumed.
+      sessionStorage.setItem(SESSION_BYPASS_KEY, "1");
+      // Replicate model ID does NOT get a suffix appended in getDisplayName,
+      // so the rendered card text exactly equals model.name.
+      localStorage.setItem(
+        CACHE_KEY_V2,
+        JSON.stringify({
+          [CACHE_INNER_KEY]: {
+            models: [
+              {
+                id: "stability-ai/cached-prior",
+                name: "Cached From Prior Session",
+                description: "served from cache",
+                provider: "replicate",
+                capabilities: ["text-to-image"],
+              },
+            ],
+            timestamp: Date.now(),
+          },
+        })
+      );
+
+      render(
+        <TestWrapper>
+          <ModelSearchDialog isOpen={true} onClose={vi.fn()} />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Cached From Prior Session")).toBeInTheDocument();
+      });
+      // Cache hit — should NOT have refetched from /api/models.
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+
   describe("API Headers", () => {
     it("should include API keys in request headers", async () => {
       mockProviderApiKeys.openaiApiKey = "test-openai-key";

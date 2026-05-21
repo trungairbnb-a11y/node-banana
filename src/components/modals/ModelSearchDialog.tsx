@@ -9,8 +9,19 @@ import { ProviderType, RecentModel } from "@/types";
 import { ProviderModel, ModelCapability } from "@/lib/providers/types";
 
 // localStorage cache for models (persists across dev server restarts)
-const MODELS_CACHE_KEY = "node-banana-models-cache";
-const MODELS_CACHE_TTL = 48 * 60 * 60 * 1000; // 48 hours
+// Versioned key — bump when cache shape or invalidation semantics change so old
+// entries (e.g. partial 12-model fal lists captured before FAL_KEY was set)
+// don't haunt users on first open of the modal.
+const MODELS_CACHE_KEY = "node-banana-models-cache-v2";
+// Drop to 1 hour. With the old 48 h TTL a single bad fetch (server warming up,
+// env vars not yet loaded, fal API throttled) would stick for ~2 days and ship
+// the user a tiny model list until they hit "Refresh" manually.
+const MODELS_CACHE_TTL = 60 * 60 * 1000;
+// One-shot in-session bypass: the very first time the modal opens after a
+// page load we ignore the cache and refetch from `/api/models`. This catches
+// the "server now has FAL_KEY / GEMINI_API_KEY but cache was populated before"
+// scenario without forcing every open to round-trip.
+const FIRST_OPEN_BYPASS_KEY = "node-banana-models-cache-bypassed-v2";
 
 interface ModelsCacheEntry {
   models: ProviderModel[];
@@ -38,6 +49,17 @@ function setCachedModels(cacheKey: string, models: ProviderModel[], availablePro
     localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify(cache));
   } catch {
     // Ignore cache errors
+  }
+}
+
+function shouldBypassCacheOnce(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    if (sessionStorage.getItem(FIRST_OPEN_BYPASS_KEY) === "1") return false;
+    sessionStorage.setItem(FIRST_OPEN_BYPASS_KEY, "1");
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -290,10 +312,13 @@ export function ModelSearchDialog({
     }
   }, [debouncedSearch, providerFilter, capabilityFilter, openaiApiKey, replicateApiKey, falApiKey, kieApiKey, wavespeedApiKey]);
 
-  // Fetch models when filters change
+  // Fetch models when filters change. The very first open of the modal in a
+  // page session always bypasses the localStorage cache so users never see a
+  // stale partial list captured before the server had FAL_KEY / GEMINI_API_KEY
+  // (the symptom: modal shows ~12 models, "Refresh" then yields 1000+).
   useEffect(() => {
     if (isOpen) {
-      fetchModels();
+      fetchModels(shouldBypassCacheOnce());
     }
   }, [isOpen, fetchModels]);
 
