@@ -135,9 +135,12 @@ export function GenerateVideoNode({ id, data, selected }: NodeProps<GenerateVide
   }, [flowEnabled, geminiApiKey, id, nodeData.parameters, nodeData.selectedModel?.modelId, nodeData.selectedModel?.provider, updateNodeData]);
 
   useEffect(() => {
-    const flowSchema = buildFlowInputSchema(nodeData.selectedModel?.modelId || "");
-    const hasFlowImageInput = nodeData.inputSchema?.some((input) => input.type === "image");
-    if (nodeData.selectedModel?.provider === "flow" && flowSchema && !hasFlowImageInput) {
+    if (nodeData.selectedModel?.provider !== "flow") return;
+    const flowSchema = buildFlowInputSchema(nodeData.selectedModel.modelId || "");
+    if (!flowSchema) return;
+    const currentNames = (nodeData.inputSchema || []).map((i) => i.name).join(",");
+    const expectedNames = flowSchema.map((i) => i.name).join(",");
+    if (currentNames !== expectedNames) {
       updateNodeData(id, { inputSchema: flowSchema });
     }
   }, [id, nodeData.inputSchema, nodeData.selectedModel?.modelId, nodeData.selectedModel?.provider, updateNodeData]);
