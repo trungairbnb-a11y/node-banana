@@ -8,6 +8,7 @@ import { ProviderSettings } from "@/types";
 const mockAddNode = vi.fn();
 const mockExecuteWorkflow = vi.fn();
 const mockRegenerateNode = vi.fn();
+const mockExecuteSelectedNodes = vi.fn();
 const mockStopWorkflow = vi.fn();
 const mockValidateWorkflow = vi.fn();
 const mockSetEdgeStyle = vi.fn();
@@ -79,6 +80,7 @@ const createDefaultState = (overrides = {}) => ({
   currentNodeIds: [],
   executeWorkflow: mockExecuteWorkflow,
   regenerateNode: mockRegenerateNode,
+  executeSelectedNodes: mockExecuteSelectedNodes,
   stopWorkflow: mockStopWorkflow,
   validateWorkflow: mockValidateWorkflow,
   edgeStyle: "angular" as const,
@@ -120,28 +122,30 @@ describe("FloatingActionBar", () => {
 
       await waitFor(() => {
         expect(screen.getByText("Image")).toBeInTheDocument();
-        expect(screen.getByText("Inputs")).toBeInTheDocument();
         expect(screen.getByText("Prompt")).toBeInTheDocument();
-        expect(screen.getByText("Output")).toBeInTheDocument();
-        expect(screen.getByText("All nodes")).toBeInTheDocument();
+        expect(screen.getByText("Generate")).toBeInTheDocument();
+        expect(screen.getByText("Utility")).toBeInTheDocument();
+        expect(screen.getByText("Network")).toBeInTheDocument();
+        expect(screen.getByText("Run")).toBeInTheDocument();
+        expect(screen.getByTitle("Browse fal.ai models")).toBeInTheDocument();
+        expect(screen.queryByText("Inputs")).not.toBeInTheDocument();
+        expect(screen.queryByText("All nodes")).not.toBeInTheDocument();
+        expect(screen.queryByText("All models")).not.toBeInTheDocument();
       });
     });
 
-    it("should create an image input board from the Inputs button", async () => {
+    it("should keep the old Inputs quick action out of the X-Node toolbar", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
         </TestWrapper>
       );
 
-      fireEvent.click(screen.getByText("Inputs"));
-
       await waitFor(() => {
-        expect(mockCreateImageInputBoard).toHaveBeenCalledWith(expect.objectContaining({
-          x: expect.any(Number),
-          y: expect.any(Number),
-        }));
+        expect(screen.queryByText("Inputs")).not.toBeInTheDocument();
       });
+
+      expect(mockCreateImageInputBoard).not.toHaveBeenCalled();
     });
 
     it("should render Generate combo button", async () => {
@@ -216,7 +220,7 @@ describe("FloatingActionBar", () => {
       expect(mockAddNode).toHaveBeenCalledWith("prompt", expect.any(Object));
     });
 
-    it("should call addNode when Output button is clicked", async () => {
+    it("should add Output from the Utility menu", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -224,9 +228,10 @@ describe("FloatingActionBar", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("Output")).toBeInTheDocument();
+        expect(screen.getByText("Utility")).toBeInTheDocument();
       });
 
+      fireEvent.click(screen.getByText("Utility"));
       const outputButton = screen.getByText("Output");
       fireEvent.click(outputButton);
 
@@ -302,9 +307,9 @@ describe("FloatingActionBar", () => {
       const generateButton = screen.getByText("Generate");
       fireEvent.click(generateButton);
 
-      // Dropdown menu items should appear
-      expect(screen.getByText("Image", { selector: "button.w-full" })).toBeInTheDocument();
-      expect(screen.getByText("Video", { selector: "button.w-full" })).toBeInTheDocument();
+      // Dropdown menu items should appear (text now wrapped in <span> inside button)
+      expect(screen.getByText("Image", { selector: "button.w-full span" })).toBeInTheDocument();
+      expect(screen.getByText("Video", { selector: "button.w-full span" })).toBeInTheDocument();
       expect(screen.getByText("Text (LLM)")).toBeInTheDocument();
     });
 
@@ -323,13 +328,13 @@ describe("FloatingActionBar", () => {
       fireEvent.click(screen.getByText("Generate"));
 
       // Click Image option in dropdown
-      const imageOption = screen.getByText("Image", { selector: "button.w-full" });
+      const imageOption = screen.getByText("Image", { selector: "button.w-full span" });
       fireEvent.click(imageOption);
 
       expect(mockAddNode).toHaveBeenCalledWith("nanoBanana", expect.any(Object));
     });
 
-    it("should add generateVideo node when Video option is clicked", async () => {
+    it("should add kling26 node when Video option is clicked (mirrors netlify Generate menu)", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -341,9 +346,9 @@ describe("FloatingActionBar", () => {
       });
 
       fireEvent.click(screen.getByText("Generate"));
-      fireEvent.click(screen.getByText("Video", { selector: "button.w-full" }));
+      fireEvent.click(screen.getByText("Video", { selector: "button.w-full span" }));
 
-      expect(mockAddNode).toHaveBeenCalledWith("generateVideo", expect.any(Object));
+      expect(mockAddNode).toHaveBeenCalledWith("kling26", expect.any(Object));
     });
 
     it("should add llmGenerate node when Text (LLM) option is clicked", async () => {
@@ -377,18 +382,18 @@ describe("FloatingActionBar", () => {
       fireEvent.click(screen.getByText("Generate"));
 
       // Verify dropdown is open
-      expect(screen.getByText("Video", { selector: "button.w-full" })).toBeInTheDocument();
+      expect(screen.getByText("Video", { selector: "button.w-full span" })).toBeInTheDocument();
 
       // Click an option
-      fireEvent.click(screen.getByText("Video", { selector: "button.w-full" }));
+      fireEvent.click(screen.getByText("Video", { selector: "button.w-full span" }));
 
       // Dropdown should close
-      expect(screen.queryByText("Video", { selector: "button.w-full" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Video", { selector: "button.w-full span" })).not.toBeInTheDocument();
     });
   });
 
   describe("Browse Models Button", () => {
-    it("should render All models button with Browse models title", async () => {
+    it("should render the X-Node model icon button", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -396,12 +401,12 @@ describe("FloatingActionBar", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByTitle("Browse models")).toBeInTheDocument();
-        expect(screen.getByText("All models")).toBeInTheDocument();
+        expect(screen.getByTitle("Browse fal.ai models")).toBeInTheDocument();
+        expect(screen.queryByText("All models")).not.toBeInTheDocument();
       });
     });
 
-    it("should open ModelSearchDialog when All models button is clicked", async () => {
+    it("should open ModelSearchDialog when model icon button is clicked", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -409,18 +414,18 @@ describe("FloatingActionBar", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("All models")).toBeInTheDocument();
+        expect(screen.getByTitle("Browse fal.ai models")).toBeInTheDocument();
       });
 
-      const browseButton = screen.getByText("All models");
+      const browseButton = screen.getByTitle("Browse fal.ai models");
       fireEvent.click(browseButton);
 
       expect(mockSetModelSearchOpen).toHaveBeenCalledWith(true);
     });
   });
 
-  describe("All Nodes Menu", () => {
-    it("should render All nodes button", async () => {
+  describe("Network Menu", () => {
+    it("should render Network shell button", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -428,11 +433,11 @@ describe("FloatingActionBar", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("All nodes")).toBeInTheDocument();
+        expect(screen.getByText("Network")).toBeInTheDocument();
       });
     });
 
-    it("should open All nodes dropdown when clicked", async () => {
+    it("should open Network dropdown listing the five netlify entries", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -440,20 +445,19 @@ describe("FloatingActionBar", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("All nodes")).toBeInTheDocument();
+        expect(screen.getByText("Network")).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText("All nodes"));
+      fireEvent.click(screen.getByText("Network"));
 
-      // Check representative items from different categories
-      expect(screen.getByText("Image Input")).toBeInTheDocument();
-      expect(screen.getByText("Generate Image")).toBeInTheDocument();
-      expect(screen.getByText("Router")).toBeInTheDocument();
-      expect(screen.getByText("Output Gallery")).toBeInTheDocument();
-      expect(screen.getByText("Annotate")).toBeInTheDocument();
+      expect(screen.getByText("Webhook Trigger")).toBeInTheDocument();
+      expect(screen.getByText("Webhook Response")).toBeInTheDocument();
+      expect(screen.getByText("Data Forward")).toBeInTheDocument();
+      expect(screen.getByText("Dropbox Upload")).toBeInTheDocument();
+      expect(screen.getByText("Cloudinary Upload")).toBeInTheDocument();
     });
 
-    it("should call addNode when a node is selected from All nodes menu", async () => {
+    it("should add the corresponding X-Node node type when a Network entry is clicked", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -461,16 +465,32 @@ describe("FloatingActionBar", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("All nodes")).toBeInTheDocument();
+        expect(screen.getByText("Network")).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText("All nodes"));
-      fireEvent.click(screen.getByText("Annotate"));
+      fireEvent.click(screen.getByText("Network"));
+      const webhookButton = screen.getByText("Webhook Trigger").closest("button")!;
 
-      expect(mockAddNode).toHaveBeenCalledWith("annotation", expect.any(Object));
+      expect(webhookButton).not.toBeDisabled();
+      fireEvent.click(webhookButton);
+      expect(mockAddNode).toHaveBeenCalledWith("webhookTrigger", expect.any(Object));
+    });
+  });
+
+  describe("Utility Nodes Menu", () => {
+    it("should render Utility button next to the quick node buttons", async () => {
+      render(
+        <TestWrapper>
+          <FloatingActionBar />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Utility")).toBeInTheDocument();
+      });
     });
 
-    it("should close All nodes dropdown after selection", async () => {
+    it("should open Utility dropdown when clicked", async () => {
       render(
         <TestWrapper>
           <FloatingActionBar />
@@ -478,19 +498,55 @@ describe("FloatingActionBar", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("All nodes")).toBeInTheDocument();
+        expect(screen.getByText("Utility")).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText("All nodes"));
+      fireEvent.click(screen.getByText("Utility"));
 
-      // Verify dropdown is open
-      expect(screen.getByText("Image Input")).toBeInTheDocument();
+      expect(screen.getByText("Output")).toBeInTheDocument();
+      expect(screen.getByText("Split Grid")).toBeInTheDocument();
+      expect(screen.getByText("Sticky Note")).toBeInTheDocument();
+      expect(screen.getByText("Switch")).toBeInTheDocument();
+      expect(screen.getByText("Text Splitter")).toBeInTheDocument();
+      expect(screen.getByText("Media Download")).toBeInTheDocument();
+      expect(screen.getByText("Audio Equalizer")).toBeInTheDocument();
+      expect(screen.queryByText("Cloudinary Upload")).not.toBeInTheDocument();
+    });
 
-      // Click an item
-      fireEvent.click(screen.getByText("Image Input"));
+    it("should call addNode when a node is selected from Utility menu", async () => {
+      render(
+        <TestWrapper>
+          <FloatingActionBar />
+        </TestWrapper>
+      );
 
-      // Dropdown should close - "Image Input" should no longer be visible
-      expect(screen.queryByText("Image Input")).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText("Utility")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Utility"));
+      fireEvent.click(screen.getByText("Media Download"));
+
+      expect(mockAddNode).toHaveBeenCalledWith("mediaDownload", expect.any(Object));
+    });
+
+    it("should close Utility dropdown after selection", async () => {
+      render(
+        <TestWrapper>
+          <FloatingActionBar />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Utility")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Utility"));
+      expect(screen.getByText("Text Splitter")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Text Splitter"));
+
+      expect(screen.queryByText("Text Splitter")).not.toBeInTheDocument();
     });
   });
 

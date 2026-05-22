@@ -14,11 +14,13 @@ import type {
 
 // Re-export types from annotation for convenience
 export type { AnnotationNodeData, BaseNodeData };
+export type { XNodeModelNodeData } from "./xnodeModel";
 
 // Import from domain files to avoid circular dependencies
 import type { AspectRatio, Resolution, ModelType } from "./models";
 import type { LLMProvider, LLMModelType, SelectedModel, ProviderType } from "./providers";
 import type { GenerationTrace } from "./generationTrace";
+import type { XNodeModelNodeData } from "./xnodeModel";
 
 /**
  * All available node types in the workflow editor
@@ -28,6 +30,7 @@ export type NodeType =
   | "audioInput"
   | "videoInput"
   | "annotation"
+  | "stickyNote"
   | "prompt"
   | "array"
   | "promptConstructor"
@@ -47,7 +50,96 @@ export type NodeType =
   | "switch"
   | "conditionalSwitch"
   | "generate3d"
-  | "glbViewer";
+  | "glbViewer"
+  | "textSplitter"
+  | "maskPainter"
+  | "loadLora"
+  | "blur"
+  | "reformat"
+  | "crop"
+  | "compositor"
+  | "colorCorrection"
+  | "forEachStart"
+  | "forEachEnd"
+  | "actionDirector"
+  | "urlSpawner"
+  | "mediaDownload"
+  | "videoMaskOverlay"
+  | "extractFrameCustom"
+  | "frameComposer"
+  | "aiFaceSwap"
+  | "autoSubtitle"
+  | "cloudinaryUpload"
+  | "dataForward"
+  | "dropboxUpload"
+  | "dubbing"
+  | "dwPose"
+  | "dynamicFal"
+  | "extractFrames"
+  | "falBlendVideo"
+  | "falGptImage2Edit"
+  | "falHappyHorse"
+  | "falHyWuEdit"
+  | "falMergeAudioVideo"
+  | "falMergeAudios"
+  | "falMergeVideos"
+  | "falPixelcutBgRemoval"
+  | "falSmartResize"
+  | "falTextOutput"
+  | "flux2Klein9BBaseLora"
+  | "fluxProKontextEdit"
+  | "generateTTS"
+  | "generateTTSStitch"
+  | "grokImagine"
+  | "grokVideo"
+  | "happyHorse"
+  | "kling26"
+  | "klingAvatar"
+  | "klingMotionControl"
+  | "klingO1"
+  | "klingVideo"
+  | "ltx219bV2V"
+  | "ltx23"
+  | "ltx2322b"
+  | "ltx2322bDistilled"
+  | "lucy2"
+  | "openaiImage"
+  | "phota"
+  | "qwenImage2512Lora"
+  | "qwenImage2ProEdit"
+  | "qwenImageEdit2511Lora"
+  | "qwenImageEditInpaint"
+  | "qwenMultipleAngles"
+  | "reverseVideo"
+  | "sam31SegmentVideo"
+  | "sam3SegmentVideo"
+  | "seedVRUpscale"
+  | "seedance20"
+  | "seedreamV45Edit"
+  | "seedreamV5LiteEdit"
+  | "soundEffect"
+  | "topazVideoUpscale"
+  | "trimVideo"
+  | "veoVideo"
+  | "videoUnderstanding"
+  | "voiceChanger"
+  | "voiceIsolator"
+  | "wan22A14BLora"
+  | "wan22VaceA14b"
+  | "wan25I2V"
+  | "wan26I2V"
+  | "wan26R2V"
+  | "wanAnimateMove"
+  | "wanAnimateReplace"
+  | "wanMotion"
+  | "wanVisionEnhancer"
+  | "webhookResponse"
+  | "webhookTrigger"
+  | "xaiSpeechToText"
+  | "zImageTurboI2I"
+  | "zImageTurboInpaintLora"
+  | "zImageTurboLora"
+  | "audioEnvironment";
 
 /**
  * Node execution status
@@ -88,6 +180,25 @@ export interface VideoInputNodeData extends BaseNodeData {
   dimensions: { width: number; height: number } | null;
   format: string | null;         // MIME type (video/mp4, video/webm, etc.)
   isOptional?: boolean;
+}
+
+/**
+ * Sticky Note node - free-form textarea overlay on the canvas.
+ * Reuses the GroupColor palette (defined in workflow.ts).
+ * No handles; not part of execution graph.
+ */
+export type StickyNoteColor =
+  | "neutral"
+  | "blue"
+  | "green"
+  | "purple"
+  | "orange"
+  | "red";
+
+export interface StickyNoteNodeData extends BaseNodeData {
+  text: string;
+  fontSize: number;
+  color: StickyNoteColor;
 }
 
 /**
@@ -500,6 +611,293 @@ export interface GLBViewerNodeData extends BaseNodeData {
 }
 
 /**
+ * Shared utility node data for X-Node style local processors.
+ */
+export interface UtilityNodeData extends BaseNodeData {
+  status: NodeStatus;
+  error: string | null;
+  progress?: number;
+  sourceImage?: string | null;
+  secondaryImage?: string | null;
+  maskImage?: string | null;
+  sourceVideo?: string | null;
+  maskVideo?: string | null;
+  sourceAudio?: string | null;
+  inputText?: string | null;
+  inputUrl?: string;
+  outputImage?: string | null;
+  outputVideo?: string | null;
+  outputAudio?: string | null;
+  outputPose?: string | null;
+  outputDepth?: string | null;
+  outputCanny?: string | null;
+  outputNormal?: string | null;
+  outputShaded?: string | null;
+  outputAlpha?: string | null;
+  outputPoseVideo?: string | null;
+  outputDepthVideo?: string | null;
+  outputCannyVideo?: string | null;
+  outputNormalVideo?: string | null;
+  outputShadedVideo?: string | null;
+  outputAlphaVideo?: string | null;
+  outputText?: string | null;
+  outputItems?: string[];
+  outputJson?: string | null;
+  outputLora?: string | null;
+  outputMode?: "image" | "video";
+  outputKind?: "image" | "video" | "audio" | "text" | "json" | "lora" | null;
+  activeTab?: string;
+  preset?: string;
+  quality?: string;
+  maskColor?: string;
+  maskOpacity?: number;
+  useShortestDuration?: boolean;
+  regionPosition?: "left" | "right" | "top" | "bottom";
+  regionSize?: number;
+  referenceDistribution?: "single" | "perFrame" | "interval" | "all";
+  fps?: number;
+  tone?: string;
+  outputFormat?: string;
+  distance?: number;
+  reverbWet?: number;
+  pan?: number;
+  saturation?: number;
+  gain?: number;
+  contrast?: number;
+  gamma?: number;
+  blackPoint?: number;
+  whitePoint?: number;
+  redGain?: number;
+  greenGain?: number;
+  blueGain?: number;
+  keepAspectRatio?: boolean;
+  scaleBy?: "width" | "height";
+  ease?: string;
+  frameCount?: number;
+  currentFrame?: number;
+  isPlaying?: boolean;
+  transformMode?: "move" | "rotate" | "scale" | "none";
+  depthPreviewMode?: boolean;
+  cameraKeyframes?: {
+    start?: number | null;
+    end?: number | null;
+  };
+  characters?: Array<{
+    id: string;
+    name: string;
+    gender?: "M" | "F";
+    selected?: boolean;
+    muted?: boolean;
+    clips?: Array<{ id: string; url: string; name?: string; dataUrl?: string }>;
+  }>;
+  clips?: Array<{ id: string; url: string; name?: string; dataUrl?: string }>;
+  props?: Array<{ id: string; propFile: string; dataUrl?: string; visible?: boolean; loop?: boolean }>;
+  faceMocapVideos?: Array<{ id: string; name: string; dataUrl?: string }>;
+  bindings?: Array<{ id: string; characterId?: string; videoId?: string }>;
+  rigUrl?: string;
+}
+
+export interface TextSplitterNodeData extends UtilityNodeData {
+  inputText: string | null;
+  delimiter: string;
+  trimItems: boolean;
+  removeEmpty: boolean;
+  maxOutputs: number;
+  outputItems: string[];
+  outputText: string | null;
+}
+
+export interface MaskPainterNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  outputImage: string | null;
+  brushSize: number;
+  mode: "paint" | "erase";
+}
+
+export interface LoadLoraNodeData extends UtilityNodeData {
+  path: string;
+  scale: number;
+  outputLora: string | null;
+}
+
+export interface BlurNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  maskImage: string | null;
+  outputImage: string | null;
+  radius: number;
+}
+
+export interface ReformatNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  outputImage: string | null;
+  width: number;
+  height: number;
+  mode: "contain" | "cover" | "stretch";
+  background: string;
+  preset?: string;
+  keepAspectRatio?: boolean;
+  scaleBy?: "width" | "height";
+}
+
+export interface CropNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  outputImage: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+}
+
+export interface CompositorNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  secondaryImage: string | null;
+  maskImage: string | null;
+  outputImage: string | null;
+  blendMode: GlobalCompositeOperation;
+  opacity: number;
+}
+
+export interface ColorCorrectionNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  maskImage: string | null;
+  outputImage: string | null;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  grayscale: number;
+  activeTab?: "color" | "levels";
+  gain: number;
+  gamma: number;
+  blackPoint: number;
+  whitePoint: number;
+  redGain: number;
+  greenGain: number;
+  blueGain: number;
+}
+
+export interface ForEachStartNodeData extends UtilityNodeData {
+  inputText: string | null;
+  currentIndex: number;
+  outputText: string | null;
+  outputItems: string[];
+}
+
+export interface ForEachEndNodeData extends UtilityNodeData {
+  outputImage: string | null;
+  outputVideo: string | null;
+  outputAudio: string | null;
+  outputText: string | null;
+  outputJson: string | null;
+}
+
+export interface ActionDirectorNodeData extends UtilityNodeData {
+  sourceImage: string | null;
+  sourceVideo: string | null;
+  outputImage: string | null;
+  outputVideo: string | null;
+  outputPose?: string | null;
+  outputDepth?: string | null;
+  outputCanny?: string | null;
+  outputNormal?: string | null;
+  outputShaded?: string | null;
+  outputAlpha?: string | null;
+  outputPoseVideo?: string | null;
+  outputDepthVideo?: string | null;
+  outputCannyVideo?: string | null;
+  outputNormalVideo?: string | null;
+  outputShadedVideo?: string | null;
+  outputAlphaVideo?: string | null;
+  mode: "pose" | "depth" | "canny" | "normal" | "shaded" | "alpha";
+  preset?: string;
+  width?: number;
+  height?: number;
+  ease?: string;
+  outputMode?: "image" | "video";
+  frameCount?: number;
+  fps?: number;
+  currentFrame?: number;
+  isPlaying?: boolean;
+  transformMode?: "move" | "rotate" | "scale" | "none";
+  depthPreviewMode?: boolean;
+  cameraKeyframes?: {
+    start?: number | null;
+    end?: number | null;
+  };
+  characters?: Array<{
+    id: string;
+    name: string;
+    gender?: "M" | "F";
+    selected?: boolean;
+    muted?: boolean;
+    clips?: Array<{ id: string; url: string; name?: string; dataUrl?: string }>;
+  }>;
+  clips?: Array<{ id: string; url: string; name?: string; dataUrl?: string }>;
+  props?: Array<{ id: string; propFile: string; dataUrl?: string; visible?: boolean; loop?: boolean }>;
+  faceMocapVideos?: Array<{ id: string; name: string; dataUrl?: string }>;
+  bindings?: Array<{ id: string; characterId?: string; videoId?: string }>;
+  rigUrl?: string;
+}
+
+export interface UrlSpawnerNodeData extends UtilityNodeData {
+  urls: string;
+  lastSpawnedCount: number;
+}
+
+export interface MediaDownloadNodeData extends UtilityNodeData {
+  inputUrl: string;
+  format: "video" | "audio";
+  quality: "best" | "1080p" | "720p" | "480p" | "medium" | "low";
+  outputVideo: string | null;
+  outputAudio: string | null;
+}
+
+export interface VideoMaskOverlayNodeData extends UtilityNodeData {
+  sourceVideo: string | null;
+  maskVideo: string | null;
+  outputVideo: string | null;
+  maskColor?: string;
+  maskOpacity?: number;
+  useShortestDuration?: boolean;
+}
+
+export interface ExtractFrameCustomNodeData extends UtilityNodeData {
+  sourceVideo: string | null;
+  outputImage: string | null;
+  frameTime: number;
+  frameIndex: number;
+  fps: number;
+}
+
+export interface FrameComposerNodeData extends UtilityNodeData {
+  sourceVideo: string | null;
+  outputVideo: string | null;
+  referenceImages: string[];
+  referenceOpacity: number;
+  regionPosition?: "left" | "right" | "top" | "bottom";
+  regionSize?: number;
+  referenceDistribution?: "single" | "perFrame" | "interval" | "all";
+  fps?: number;
+}
+
+export interface AudioEnvironmentNodeData extends UtilityNodeData {
+  sourceAudio: string | null;
+  outputAudio: string | null;
+  bass: number;
+  mid: number;
+  treble: number;
+  gain: number;
+  bypass: boolean;
+  preset?: string;
+  tone?: string;
+  outputFormat?: "wav" | "mp3";
+  distance?: number;
+  reverbWet?: number;
+  pan?: number;
+}
+
+/**
  * Union of all node data types
  */
 export type WorkflowNodeData =
@@ -507,6 +905,7 @@ export type WorkflowNodeData =
   | AudioInputNodeData
   | VideoInputNodeData
   | AnnotationNodeData
+  | StickyNoteNodeData
   | PromptNodeData
   | ArrayNodeData
   | PromptConstructorNodeData
@@ -526,7 +925,25 @@ export type WorkflowNodeData =
   | RouterNodeData
   | SwitchNodeData
   | ConditionalSwitchNodeData
-  | GLBViewerNodeData;
+  | GLBViewerNodeData
+  | TextSplitterNodeData
+  | MaskPainterNodeData
+  | LoadLoraNodeData
+  | BlurNodeData
+  | ReformatNodeData
+  | CropNodeData
+  | CompositorNodeData
+  | ColorCorrectionNodeData
+  | ForEachStartNodeData
+  | ForEachEndNodeData
+  | ActionDirectorNodeData
+  | UrlSpawnerNodeData
+  | MediaDownloadNodeData
+  | VideoMaskOverlayNodeData
+  | ExtractFrameCustomNodeData
+  | FrameComposerNodeData
+  | AudioEnvironmentNodeData
+  | XNodeModelNodeData;
 
 /**
  * Workflow node with typed data (extended with optional groupId)

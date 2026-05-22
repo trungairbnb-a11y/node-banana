@@ -27,6 +27,7 @@ import {
   AudioInputNode,
   VideoInputNode,
   AnnotationNode,
+  StickyNoteNode,
   PromptNode,
   ArrayNode,
   PromptConstructorNode,
@@ -46,7 +47,10 @@ import {
   RouterNode,
   SwitchNode,
   ConditionalSwitchNode,
+  UtilityNode,
 } from "./nodes";
+import { XNodeAIModelNode } from "./nodes/XNodeAIModelNode";
+import { X_NODE_MODELS } from "@/lib/xnode/models";
 
 // Lazy-load GLBViewerNode to avoid bundling three.js for users who don't use 3D nodes
 const GLBViewerNode = dynamic(() => import("./nodes/GLBViewerNode").then(mod => ({ default: mod.GLBViewerNode })), { ssr: false });
@@ -56,7 +60,8 @@ import { MultiSelectToolbar } from "./MultiSelectToolbar";
 import { EdgeToolbar } from "./EdgeToolbar";
 import { GlobalImageHistory } from "./GlobalImageHistory";
 import { GroupBackgroundsPortal, GroupControlsOverlay } from "./GroupsOverlay";
-import { NodeType, NanoBananaNodeData, HandleType, PromptNodeData, LLMGenerateNodeData, PromptConstructorNodeData, AvailableVariable } from "@/types";
+import { NodeType, NanoBananaNodeData, HandleType, PromptNodeData, LLMGenerateNodeData, PromptConstructorNodeData, AvailableVariable, WorkflowNodeData } from "@/types";
+import { PaneContextMenu } from "@/components/PaneContextMenu";
 import { defaultNodeDimensions } from "@/store/utils/nodeDefaults";
 import { FloatingNodeHeader } from "./nodes/FloatingNodeHeader";
 import { ControlPanel } from "./nodes/ControlPanel";
@@ -84,12 +89,34 @@ import { useAnnotationStore } from "@/store/annotationStore";
 import { TutorialOverlay } from "./onboarding/TutorialOverlay";
 import { useFTUXStore } from "@/store/ftuxStore";
 import { fetchModelRetargetEnvStatus, scanWorkflowForModelRetargets } from "@/lib/modelRetargeting";
+import { getBlueprint, getBlueprintHandles } from "@/lib/nodeRegistry";
+
+const INTERNAL_UTILITY_HEADER_TYPES = new Set<NodeType>([
+  "textSplitter",
+  "maskPainter",
+  "loadLora",
+  "blur",
+  "reformat",
+  "crop",
+  "compositor",
+  "colorCorrection",
+  "forEachStart",
+  "forEachEnd",
+  "actionDirector",
+  "urlSpawner",
+  "mediaDownload",
+  "videoMaskOverlay",
+  "extractFrameCustom",
+  "frameComposer",
+  "audioEnvironment",
+]);
 
 const nodeTypes: NodeTypes = {
   imageInput: ImageInputNode,
   audioInput: AudioInputNode,
   videoInput: VideoInputNode,
   annotation: AnnotationNode,
+  stickyNote: StickyNoteNode,
   prompt: PromptNode,
   array: ArrayNode,
   promptConstructor: PromptConstructorNode,
@@ -110,6 +137,26 @@ const nodeTypes: NodeTypes = {
   switch: SwitchNode,
   conditionalSwitch: ConditionalSwitchNode,
   glbViewer: GLBViewerNode,
+  textSplitter: UtilityNode,
+  maskPainter: UtilityNode,
+  loadLora: UtilityNode,
+  blur: UtilityNode,
+  reformat: UtilityNode,
+  crop: UtilityNode,
+  compositor: UtilityNode,
+  colorCorrection: UtilityNode,
+  forEachStart: UtilityNode,
+  forEachEnd: UtilityNode,
+  actionDirector: UtilityNode,
+  urlSpawner: UtilityNode,
+  mediaDownload: UtilityNode,
+  videoMaskOverlay: UtilityNode,
+  extractFrameCustom: UtilityNode,
+  frameComposer: UtilityNode,
+  audioEnvironment: UtilityNode,
+  ...Object.fromEntries(
+    X_NODE_MODELS.map((model) => [model.type, XNodeAIModelNode])
+  ),
 };
 
 const edgeTypes: EdgeTypes = {
@@ -131,6 +178,9 @@ const getHandleType = (handleId: string | null | undefined): "image" | "text" | 
   if (handleId === "easeCurve") return "easeCurve";
   // 3D handles
   if (handleId === "3d") return "3d";
+  if (handleId === "mask") return "image";
+  if (handleId === "lora") return "text";
+  if (["openPose", "depth", "canny", "normal", "shaded", "alpha"].includes(handleId)) return "image";
   // Standard handles
   if (handleId === "video") return "video";
   if (handleId === "audio" || handleId.startsWith("audio")) return "audio";
@@ -197,7 +247,7 @@ const getNodeHandles = (nodeType: string): { inputs: string[]; outputs: string[]
     case "glbViewer":
       return { inputs: ["3d"], outputs: ["image"] };
     default:
-      return { inputs: [], outputs: [] };
+      return getBlueprintHandles(nodeType);
   }
 };
 
@@ -329,6 +379,11 @@ export function WorkflowCanvas() {
   const [showNewProjectSetup, setShowNewProjectSetup] = useState(false);
   const [showRetargetModels, setShowRetargetModels] = useState(false);
   const [expandingNode, setExpandingNode] = useState<{ id: string; type: string } | null>(null);
+  // Right-click "Quick Add" context menu on the React Flow pane — netlify parity.
+  const [paneContextMenu, setPaneContextMenu] = useState<
+    | { position: { x: number; y: number }; flowPosition: { x: number; y: number } }
+    | null
+  >(null);
 
   // Fallback model picker state
   const [fallbackDialogState, setFallbackDialogState] = useState<
@@ -506,7 +561,8 @@ export function WorkflowCanvas() {
       if (model?.name) return model.name;
     }
 
-    return NODE_TITLES[node.type || ""] || "Node";
+    const blueprint = node.type ? getBlueprint(node.type as NodeType) : null;
+    return blueprint?.label || NODE_TITLES[node.type || ""] || "Node";
   }, []);
 
 
@@ -630,7 +686,7 @@ export function WorkflowCanvas() {
         if (!targetNode) return false;
 
         const targetNodeType = targetNode.type;
-        if (targetNodeType === "generateVideo" || targetNodeType === "videoStitch" || targetNodeType === "easeCurve" || targetNodeType === "videoTrim" || targetNodeType === "videoFrameGrab" || targetNodeType === "videoInput" || targetNodeType === "output" || targetNodeType === "outputGallery" || targetNodeType === "router") {
+        if (targetNodeType === "generateVideo" || targetNodeType === "videoStitch" || targetNodeType === "easeCurve" || targetNodeType === "videoTrim" || targetNodeType === "videoFrameGrab" || targetNodeType === "videoInput" || targetNodeType === "output" || targetNodeType === "outputGallery" || targetNodeType === "router" || targetNodeType === "videoMaskOverlay" || targetNodeType === "extractFrameCustom" || targetNodeType === "frameComposer" || targetNodeType === "actionDirector") {
           // For output node, we allow video even though its handle is typed as "image"
           // because output node can display both images and videos
           return true;
@@ -1434,6 +1490,42 @@ export function WorkflowCanvas() {
     setConnectionDrop(null);
   }, []);
 
+  // Right-click on the React Flow pane opens a searchable Quick Add menu —
+  // mirrors https://dev-x-node.netlify.app/ behavior. Modal-open state and
+  // tutorial mode suppress the menu so they don't fight overlays.
+  const handlePaneContextMenu = useCallback(
+    (event: React.MouseEvent | MouseEvent) => {
+      if (isModalOpen || tutorialActive) return;
+      event.preventDefault();
+      const flowPosition = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      setPaneContextMenu({
+        position: { x: event.clientX, y: event.clientY },
+        flowPosition,
+      });
+    },
+    [isModalOpen, tutorialActive, screenToFlowPosition]
+  );
+
+  const handleClosePaneContextMenu = useCallback(() => {
+    setPaneContextMenu(null);
+  }, []);
+
+  const handleSelectPaneContextNode = useCallback(
+    (
+      type: NodeType,
+      flowPosition: { x: number; y: number },
+      initialData?: Partial<WorkflowNodeData>
+    ) => {
+      const dimensions = defaultNodeDimensions[type] ?? { width: 280, height: 200 };
+      const position = {
+        x: flowPosition.x - dimensions.width / 2,
+        y: flowPosition.y - dimensions.height / 2,
+      };
+      addNode(type, position, initialData);
+    },
+    [addNode]
+  );
+
   // Get copy/paste functions and clipboard from store
   const copySelectedNodes = useWorkflowStore((state) => state.copySelectedNodes);
   const pasteNodes = useWorkflowStore((state) => state.pasteNodes);
@@ -1607,33 +1699,7 @@ export function WorkflowCanvas() {
           event.preventDefault();
           const { centerX, centerY } = getViewportCenter();
           // Offset by half the default node dimensions to center it
-          const defaultDimensions: Record<NodeType, { width: number; height: number }> = {
-            imageInput: { width: 300, height: 280 },
-            audioInput: { width: 300, height: 200 },
-            videoInput: { width: 300, height: 280 },
-            annotation: { width: 300, height: 280 },
-            prompt: { width: 320, height: 220 },
-            array: { width: 360, height: 360 },
-            promptConstructor: { width: 340, height: 280 },
-            nanoBanana: { width: 300, height: 300 },
-            generateVideo: { width: 300, height: 300 },
-            generate3d: { width: 300, height: 300 },
-            generateAudio: { width: 300, height: 280 },
-            llmGenerate: { width: 320, height: 360 },
-            splitGrid: { width: 300, height: 320 },
-            output: { width: 320, height: 320 },
-            outputGallery: { width: 320, height: 360 },
-            imageCompare: { width: 400, height: 360 },
-            videoStitch: { width: 400, height: 280 },
-            easeCurve: { width: 340, height: 480 },
-            videoTrim: { width: 360, height: 360 },
-            videoFrameGrab: { width: 320, height: 320 },
-            router: { width: 200, height: 80 },
-            switch: { width: 220, height: 120 },
-            conditionalSwitch: { width: 260, height: 180 },
-            glbViewer: { width: 360, height: 380 },
-          };
-          const dims = defaultDimensions[nodeType];
+          const dims = defaultNodeDimensions[nodeType];
           addNode(nodeType, { x: centerX - dims.width / 2, y: centerY - dims.height / 2 });
           return;
         }
@@ -2124,6 +2190,8 @@ export function WorkflowCanvas() {
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
         onConnectEnd={handleConnectEnd}
+        onPaneContextMenu={handlePaneContextMenu}
+        onPaneClick={handleClosePaneContextMenu}
         onMoveStart={() => { isPanningRef.current = true; setHoveredNodeId(null); document.documentElement.classList.add("canvas-interacting"); }}
         onMoveEnd={() => { isPanningRef.current = false; document.documentElement.classList.remove("canvas-interacting"); }}
         onNodeDragStart={() => { isDraggingNodeRef.current = true; document.documentElement.classList.add("canvas-interacting"); }}
@@ -2133,6 +2201,7 @@ export function WorkflowCanvas() {
         edgeTypes={edgeTypes}
         isValidConnection={isValidConnection}
         fitView
+        fitViewOptions={{ maxZoom: 1 }}
         deleteKeyCode={["Backspace", "Delete"]}
         multiSelectionKeyCode="Shift"
         selectionOnDrag={
@@ -2179,7 +2248,7 @@ export function WorkflowCanvas() {
         nodesDraggable={!isModalOpen}
         nodesConnectable={!isModalOpen}
         elementsSelectable={!isModalOpen}
-        className="bg-neutral-900"
+        className="bg-[#070707]"
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
           type: "editable",
@@ -2190,8 +2259,8 @@ export function WorkflowCanvas() {
         <GroupBackgroundsPortal />
         <GroupControlsOverlay />
         <Background
-          color="#404040"
-          gap={20}
+          color="#252525"
+          gap={24}
           size={1}
           className={tutorialActive && lockedFeatures ? "opacity-30 pointer-events-none" : ""}
         />
@@ -2211,6 +2280,8 @@ export function WorkflowCanvas() {
                 return "#c084fc"; // purple-400 (video input, distinct from generateVideo's #9333ea)
               case "annotation":
                 return "#8b5cf6";
+              case "stickyNote":
+                return "#eab308";
               case "prompt":
                 return "#f97316";
               case "array":
@@ -2251,8 +2322,19 @@ export function WorkflowCanvas() {
                 return "#06b6d4"; // cyan-500 (distinct from Router gray and Switch violet)
               case "glbViewer":
                 return "#0ea5e9"; // sky-500 (3D viewport)
-              default:
+              default: {
+                // Try X-Node schema-registered models (72 reverse-engineered types)
+                const xnodeModel = X_NODE_MODELS.find((m) => m.type === node.type);
+                if (xnodeModel?.minimapColor) return xnodeModel.minimapColor;
+                if (xnodeModel) {
+                  if (xnodeModel.menuGroup === "Network") return "#06b6d4";
+                  if (xnodeModel.category === "video") return "#7c3aed";
+                  if (xnodeModel.category === "audio") return "#d946ef";
+                  if (xnodeModel.category === "text") return "#a855f7";
+                  return "#22c55e";
+                }
                 return "#94a3b8";
+              }
             }
           }}
         />
@@ -2260,6 +2342,7 @@ export function WorkflowCanvas() {
           {allNodes.map((node) => {
             // Groups don't get floating headers
             if (node.type === "group" as any) return null;
+            if (node.type && INTERNAL_UTILITY_HEADER_TYPES.has(node.type as NodeType)) return null;
 
             const defaultWidth = defaultNodeDimensions[node.type as NodeType]?.width ?? 250;
             const headerWidth = node.measured?.width || (node.style?.width as number) || defaultWidth;
@@ -2381,6 +2464,16 @@ export function WorkflowCanvas() {
           connectionType={connectionDrop.connectionType}
           onSelect={handleMenuSelect}
           onClose={handleCloseDropMenu}
+        />
+      )}
+
+      {/* Right-click Quick Add menu (netlify parity) */}
+      {paneContextMenu && (
+        <PaneContextMenu
+          position={paneContextMenu.position}
+          flowPosition={paneContextMenu.flowPosition}
+          onSelect={handleSelectPaneContextNode}
+          onClose={handleClosePaneContextMenu}
         />
       )}
 

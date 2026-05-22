@@ -5,11 +5,12 @@ import { Handle, Position, NodeProps, Node } from "@xyflow/react";
 import { BaseNode } from "./BaseNode";
 import { useCommentNavigation } from "@/hooks/useCommentNavigation";
 import { useWorkflowStore } from "@/store/workflowStore";
-import { ImageInputNodeData } from "@/types";
+import { ImageInputNodeData, WorkflowNode } from "@/types";
 import { useAdaptiveImageSrc } from "@/hooks/useAdaptiveImageSrc";
 import { downloadMedia } from "@/utils/downloadMedia";
 import { useShowHandleLabels } from "@/hooks/useShowHandleLabels";
 import { HandleLabel } from "./HandleLabel";
+import { calculateNodeSizeForFullBleed } from "@/utils/nodeDimensions";
 
 type ImageInputNodeType = Node<ImageInputNodeData, "imageInput">;
 
@@ -41,12 +42,40 @@ export function ImageInputNode({ id, data, selected }: NodeProps<ImageInputNodeT
         const base64 = event.target?.result as string;
         const img = new Image();
         img.onload = () => {
-          updateNodeData(id, {
+          const dataUpdates: Partial<ImageInputNodeData> = {
             image: base64,
             imageRef: undefined,
             filename: file.name,
             dimensions: { width: img.width, height: img.height },
-          });
+          };
+
+          // Auto-resize the node to match the uploaded image's aspect ratio
+          // so the preview shows the full image without crop. Mirrors the
+          // behavior on https://dev-x-node.netlify.app/. We update data and
+          // dimensions atomically through Zustand to avoid a race between
+          // updateNodeData() (Zustand) and useReactFlow().setNodes (React
+          // Flow internal store) where the latter would replay a stale node
+          // snapshot and wipe the just-set image.
+          if (img.width > 0 && img.height > 0) {
+            const aspect = img.width / img.height;
+            const size = calculateNodeSizeForFullBleed(aspect);
+            useWorkflowStore.setState((state) => ({
+              nodes: state.nodes.map((node) =>
+                node.id === id
+                  ? ({
+                      ...node,
+                      width: size.width,
+                      height: size.height,
+                      style: { ...node.style, width: size.width, height: size.height },
+                      data: { ...node.data, ...dataUpdates } as ImageInputNodeData,
+                    } as WorkflowNode)
+                  : node
+              ),
+              hasUnsavedChanges: true,
+            }));
+          } else {
+            updateNodeData(id, dataUpdates);
+          }
         };
         img.src = base64;
       };
@@ -108,7 +137,7 @@ export function ImageInputNode({ id, data, selected }: NodeProps<ImageInputNodeT
           <img
             src={adaptiveImage ?? undefined}
             alt={nodeData.filename || "Uploaded image"}
-            className="w-full h-full object-cover rounded-lg"
+            className="w-full h-full object-contain rounded-lg"
           />
           {nodeData.isOptional && (
             <span className="absolute bottom-2 left-2 text-[9px] font-medium text-neutral-300 bg-black/50 px-1.5 py-0.5 rounded">

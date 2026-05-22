@@ -54,7 +54,7 @@ export function useAudioPlayback({ audioSrc, waveformData, isLoadingWaveform }: 
       setCurrentTime(0);
     };
     const handleTimeUpdate = () => {
-      setCurrentTime(audio.currentTime);
+      setCurrentTime(Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
     };
     audio.addEventListener("ended", handleEnded);
     audio.addEventListener("timeupdate", handleTimeUpdate);
@@ -151,7 +151,7 @@ export function useAudioPlayback({ audioSrc, waveformData, isLoadingWaveform }: 
     if (isPlaying && audioRef.current) {
       const updatePosition = () => {
         if (audioRef.current) {
-          setCurrentTime(audioRef.current.currentTime);
+          setCurrentTime(Number.isFinite(audioRef.current.currentTime) ? audioRef.current.currentTime : 0);
         }
         animationFrameRef.current = requestAnimationFrame(updatePosition);
       };

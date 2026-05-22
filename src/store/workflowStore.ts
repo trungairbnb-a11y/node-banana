@@ -66,6 +66,7 @@ import {
 import { getConnectedInputsPure, validateWorkflowPure, type ConnectedInputs } from "./utils/connectedInputs";
 import { evaluateRule } from "./utils/ruleEvaluation";
 import { computeDimmedNodes } from "./utils/dimmingUtils";
+import { getBlueprintDefaults, getBlueprintDimensions } from "@/lib/nodeRegistry";
 import {
   executeAnnotation,
   executeArray,
@@ -88,6 +89,7 @@ import {
   executeRouter,
   executeSwitch,
   executeConditionalSwitch,
+  executeRegisteredUtilityNode,
   runBatchIfApplicable,
 } from "./execution";
 import type { NodeExecutionContext } from "./execution";
@@ -673,14 +675,14 @@ const workflowStoreImpl: StateCreator<WorkflowStore> = (set, get) => ({
   addNode: (type: NodeType, position: XYPosition, initialData?: Partial<WorkflowNodeData>) => {
     const id = `${type}-${++nodeIdCounter}`;
 
-    const { width, height } = defaultNodeDimensions[type];
+    const { width, height } = getBlueprintDimensions(type);
 
     // Find collision-free position
     const state = get();
     const finalPosition = findNearestFreePosition(position, type, state.nodes);
 
     // Merge default data with initialData if provided
-    const defaultData = createDefaultNodeData(type);
+    const defaultData = getBlueprintDefaults(type);
     const nodeData = initialData
       ? ({ ...defaultData, ...initialData } as WorkflowNodeData)
       : defaultData;
@@ -1513,6 +1515,9 @@ const workflowStoreImpl: StateCreator<WorkflowStore> = (set, get) => ({
           case "conditionalSwitch":
             await evaluateAndExecuteConditionalSwitch(node, executionCtx, get().getConnectedInputs, get().updateNodeData);
             break;
+          default:
+            await executeRegisteredUtilityNode(executionCtx);
+            break;
         }
     }; // End of executeSingleNode helper
 
@@ -1886,6 +1891,8 @@ const workflowStoreImpl: StateCreator<WorkflowStore> = (set, get) => ({
         set({ isRunning: false, currentNodeIds: [], _abortController: null });
         await logger.endSession();
         return;
+      } else {
+        await executeRegisteredUtilityNode(executionCtx);
       }
 
       // After regeneration, execute directly connected downstream consumer nodes
@@ -2067,6 +2074,9 @@ const workflowStoreImpl: StateCreator<WorkflowStore> = (set, get) => ({
           break;
         case "conditionalSwitch":
           await evaluateAndExecuteConditionalSwitch(node, executionCtx, get().getConnectedInputs, get().updateNodeData);
+          break;
+        default:
+          await executeRegisteredUtilityNode(executionCtx);
           break;
       }
     };

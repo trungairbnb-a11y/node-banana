@@ -1,5 +1,10 @@
 import { WorkflowFile } from "@/store/workflowStore";
 import { NodeType, WorkflowNodeData } from "@/types";
+import {
+  getBlueprintDefaults,
+  getBlueprintDimensions,
+  getBlueprints,
+} from "@/lib/nodeRegistry";
 
 interface ValidationError {
   path: string;
@@ -11,62 +16,18 @@ interface ValidationResult {
   errors: ValidationError[];
 }
 
-const VALID_NODE_TYPES: NodeType[] = [
-  "imageInput",
-  "audioInput",
-  "videoInput",
-  "annotation",
-  "prompt",
-  "array",
-  "promptConstructor",
-  "nanoBanana",
-  "generateVideo",
-  "generate3d",
-  "generateAudio",
-  "llmGenerate",
-  "splitGrid",
-  "output",
-  "outputGallery",
-  "imageCompare",
-  "videoStitch",
-  "easeCurve",
-  "videoTrim",
-  "videoFrameGrab",
-  "router",
-  "switch",
-  "conditionalSwitch",
-  "glbViewer",
-];
+const VALID_NODE_TYPES: NodeType[] = getBlueprints().map((blueprint) => blueprint.type);
 
-const VALID_HANDLE_TYPES = ["image", "text", "audio", "video", "easeCurve", "3d", "reference"];
+const VALID_HANDLE_TYPES = ["image", "text", "audio", "video", "easeCurve", "3d", "reference", "mask", "lora"];
+
+function isValidHandle(value: string): boolean {
+  return VALID_HANDLE_TYPES.includes(value) || /^(image|text|video|audio)-\d+$/.test(value);
+}
 
 // Default node dimensions
-const DEFAULT_DIMENSIONS: Record<NodeType, { width: number; height: number }> = {
-  imageInput: { width: 300, height: 280 },
-  audioInput: { width: 300, height: 200 },
-  videoInput: { width: 300, height: 280 },
-  annotation: { width: 300, height: 280 },
-  prompt: { width: 320, height: 220 },
-  array: { width: 360, height: 360 },
-  promptConstructor: { width: 340, height: 280 },
-  nanoBanana: { width: 300, height: 300 },
-  generateVideo: { width: 300, height: 300 },
-  generate3d: { width: 300, height: 300 },
-  generateAudio: { width: 300, height: 280 },
-  llmGenerate: { width: 320, height: 360 },
-  splitGrid: { width: 300, height: 320 },
-  output: { width: 320, height: 320 },
-  outputGallery: { width: 320, height: 360 },
-  imageCompare: { width: 400, height: 360 },
-  videoStitch: { width: 400, height: 280 },
-  easeCurve: { width: 340, height: 480 },
-  videoTrim: { width: 360, height: 360 },
-  videoFrameGrab: { width: 320, height: 320 },
-  router: { width: 200, height: 80 },
-  switch: { width: 220, height: 120 },
-  conditionalSwitch: { width: 260, height: 180 },
-  glbViewer: { width: 360, height: 380 },
-};
+const DEFAULT_DIMENSIONS = Object.fromEntries(
+  VALID_NODE_TYPES.map((type) => [type, getBlueprintDimensions(type)])
+) as Record<NodeType, { width: number; height: number }>;
 
 /**
  * Validate a workflow JSON object
@@ -181,14 +142,14 @@ export function validateWorkflowJSON(workflow: unknown): ValidationResult {
       }
 
       // Validate handle types
-      if (e.sourceHandle && !VALID_HANDLE_TYPES.includes(e.sourceHandle as string)) {
+      if (e.sourceHandle && !isValidHandle(e.sourceHandle as string)) {
         errors.push({
           path: `edges[${i}].sourceHandle`,
           message: `Invalid sourceHandle: ${e.sourceHandle}`,
         });
       }
 
-      if (e.targetHandle && !VALID_HANDLE_TYPES.includes(e.targetHandle as string)) {
+      if (e.targetHandle && !isValidHandle(e.targetHandle as string)) {
         errors.push({
           path: `edges[${i}].targetHandle`,
           message: `Invalid targetHandle: ${e.targetHandle}`,
@@ -220,6 +181,8 @@ export function validateWorkflowJSON(workflow: unknown): ValidationResult {
  * Create default node data based on type
  */
 function createDefaultNodeData(type: NodeType): WorkflowNodeData {
+  return getBlueprintDefaults(type);
+  /*
   switch (type) {
     case "imageInput":
       return {
@@ -429,6 +392,7 @@ function createDefaultNodeData(type: NodeType): WorkflowNodeData {
         capturedImage: null,
       };
   }
+  */
 }
 
 /**

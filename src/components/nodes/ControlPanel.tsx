@@ -16,6 +16,7 @@ import { getAllEasingNames, getEasingFunction } from "@/lib/easing-functions";
 import { getModelPageUrl, getProviderDisplayName } from "@/utils/providerUrls";
 import { useInlineParameters } from "@/hooks/useInlineParameters";
 import { buildFlowParametersForModel, DEFAULT_FLOW_MODEL, FLOW_MODELS, getFlowSchemaForModel } from "@/lib/flow/modes";
+import { FlowModeSuggestions } from "./FlowModeSuggestions";
 import { CCS_OPENAI_IMAGE_MODEL } from "@/lib/modelRetargeting";
 
 // List of node types that have configurable parameters
@@ -664,6 +665,23 @@ function GenerateVideoControls({ node }: { node: Node }) {
     [node.id, nodeData.parameters, updateNodeData]
   );
 
+  const handleFlowModeSwitch = useCallback(
+    (newModelId: string) => {
+      const model = FLOW_MODELS.find((candidate) => candidate.id === newModelId);
+      if (!model) return;
+      updateNodeData(node.id, {
+        selectedModel: {
+          provider: "flow",
+          modelId: model.id,
+          displayName: model.name,
+        },
+        parameters: buildFlowParametersForModel(model.id, nodeData.parameters || {}),
+        inputSchema: getFlowSchemaForModel(model.id)?.inputs,
+      });
+    },
+    [node.id, nodeData.parameters, updateNodeData]
+  );
+
   return (
     <>
       <div className="space-y-3">
@@ -748,6 +766,14 @@ function GenerateVideoControls({ node }: { node: Node }) {
                 </option>
               ))}
             </select>
+            {nodeData.selectedModel?.modelId && (
+              <FlowModeSuggestions
+                modelId={nodeData.selectedModel.modelId}
+                parameters={nodeData.parameters || {}}
+                onParametersChange={handleParametersChange}
+                onModeChange={handleFlowModeSwitch}
+              />
+            )}
           </div>
         )}
 
